@@ -2109,7 +2109,7 @@ function renderClRows(){
       chip.append(dir, b, un);
     } else {
       chip.className='cmap un';
-      const b = document.createElement('b'); b.textContent='(헤더만 · 빈 값)';
+      const b = document.createElement('b'); b.textContent='(Empty Header)';
       chip.appendChild(b);
     }
     // Clicking the row selects it; clicking a mapped chip (except its ✕) also selects

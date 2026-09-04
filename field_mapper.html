@@ -649,6 +649,16 @@
 const FE = '\u00FE';        // 0xFE text qualifier
 const FE_DELIM = '\u0014';  // 0x14 (DC4) column delimiter — field boundary is FE 14 FE
 
+/* Per-save loss statistics (reset before every save pass).
+   feReplace* tracks feCompose rewriting embedded 0x14/0xFE as spaces;
+   cpLost* tracks CP1252 characters that cannot be represented and are
+   written as '?'. currentRecordIdxForStats is the 1-based line index of
+   the record currently being emitted so loss reports can point at the
+   first affected line. */
+let saveStats = { feReplaceRecs:0, feReplaceChars:0, feReplaceFirst:null, cpLost:0, cpLostFirst:null };
+let currentRecordIdxForStats = 0;
+function resetSaveStats(){ saveStats = { feReplaceRecs:0, feReplaceChars:0, feReplaceFirst:null, cpLost:0, cpLostFirst:null }; }
+
 function countChar(s, c){
   let n=0;
   for(let i=0;i<s.length;i++){ if(s[i]===c) n++; }
@@ -722,7 +732,19 @@ function feSplit(rec){
 function feCompose(fields){
   // EDML requires each field boundary to be FE 14 FE. A raw 0x14/0xFE inside
   // a value would split/re-quote the record, so strip those control chars.
-  return fields.map(f => FE + String(f==null?'':f).replace(/\u00FE|\u0014/g,' ') + FE).join(FE_DELIM);
+  // Replacements are tallied (per save) so a post-save warning can report them.
+  const cleaned = [];
+  for(let i=0;i<fields.length;i++){
+    const v = String(fields[i]==null?'':fields[i]);
+    const bad = (v.match(/\u00FE|\u0014/g) || []).length;
+    if(bad > 0){
+      saveStats.feReplaceChars += bad;
+      saveStats.feReplaceRecs++;
+      if(saveStats.feReplaceFirst === null) saveStats.feReplaceFirst = currentRecordIdxForStats || 'header';
+    }
+    cleaned.push(v.replace(/\u00FE|\u0014/g,' '));
+  }
+  return cleaned.map(f => FE + f + FE).join(FE_DELIM);
 }
 
 function ccSplit(rec){
@@ -788,8 +810,16 @@ function pipeSplit(rec){ return rec.split('|'); }
    streaming scan.  Real DAT records with e-discovery extracted text
    occasionally reach tens of MB; anything larger suggests corruption
    or an extremely pathological cell, so we abort cleanly instead of
-   silently exhausting memory. */
-const MAX_RECORD_BYTES = 768 * 1024 * 1024;
+   silently exhausting memory.
+   NOTE: this compares against JS string .length, i.e. UTF-16 code
+   units (≈2 bytes each in memory), so 128M units ≈ up to 256MB of
+   string data plus copies. The old 768M-unit cap could silently reach
+   multiple GB and freeze/terminate the tab. */
+const MAX_RECORD_UNITS = 128 * 1024 * 1024;
+function recordTooLargeError(kind, recNum){
+  return new Error((kind === 'quoted' ? 'A single quoted record' : 'A single data line') +
+    ` (record #${recNum}) exceeds the maximum supported size of ${(MAX_RECORD_UNITS/1024/1024).toFixed(0)}M characters.`);
+}
 
 const FORMATS = {
   fe: {
@@ -846,9 +876,13 @@ class RecordStreamer {
     }
   }
   async _pushPlain(text){
+    // `pending` was already fully scanned by a previous call (it can contain no
+    // record boundary), so resume after it. Re-scanning it here would only
+    // duplicate work for a giant unterminated line.
+    const prefix = this.pending.length;
     let b = this.pending + text;
-    let start = 0;
-    let i = 0;
+    let start = 0;      // absolute start of the unterminated record in b
+    let i = prefix;     // continue just after the scanned prefix
     const n = b.length;
     while(i < n){
       const ch = b[i];
@@ -858,24 +892,26 @@ class RecordStreamer {
         if(ch === '\r' && b[i+1] === '\n') i++;
         i++;
         start = i;
-        if(b.length - start > MAX_RECORD_BYTES){
-          throw new Error('Single data line exceeds the maximum supported record size.');
+        if(b.length - start > MAX_RECORD_UNITS){
+          throw recordTooLargeError('plain', this.recIdx + 1);
         }
       } else i++;
     }
     this.pending = b.slice(start);
   }
   async _pushQuoted(text){
+    // `pending` is the tail of an unterminated record, and `this.open` already
+    // reflects the quote state at its end. Never re-scan that prefix: doing so
+    // under that stale `open` state toggles qualifiers twice and corrupts every
+    // record that crosses a chunk boundary. Resume exactly at the prefix/text
+    // boundary instead (amortized O(chars) as originally documented).
+    const prefix = this.pending.length;
     let b = this.pending + text;
-    // Only the tail that has not yet reached a record boundary is re-scanned,
-    // so amortized work stays O(chars) — the same as the previous whole-file
-    // scanner. Every emission is awaited so async consumers (e.g. streaming
-    // disk writes) stay strictly ordered and error-safe.
     const q = this.q;
     const skip = this.skip;
-    let open = this.open;
-    let start = 0;
-    let i = 0;
+    let open = this.open; // quote state after `this.pending`
+    let start = 0;        // absolute start of the unterminated record in b
+    let i = prefix;       // already-scanned prefix is skipped
     const n = b.length;
     while(i < n){
       const ch = b[i];
@@ -891,13 +927,13 @@ class RecordStreamer {
         if(ch === '\r' && b[i+1] === '\n') i++;
         i++;
         start = i;
-        if(b.length - start > MAX_RECORD_BYTES){
-          throw new Error('A single quoted record exceeds the maximum supported size.');
+        if(b.length - start > MAX_RECORD_UNITS){
+          throw recordTooLargeError('quoted', this.recIdx + 1);
         }
       } else i++;
     }
-    if(start === 0 && b.length > MAX_RECORD_BYTES){
-      throw new Error('A single quoted record exceeds the maximum supported size.');
+    if(start === 0 && b.length > MAX_RECORD_UNITS){
+      throw recordTooLargeError('quoted', this.recIdx + 1);
     }
     this.pending = b.slice(start);
     this.open = open;
@@ -1013,13 +1049,18 @@ function createStreamDecoder(meta){
     },
     finish(){
       let out = '';
+      let truncatedTail = false;
       if(carry !== null){
+        // A broken odd tail cannot form a whole UTF-16 unit — TextDecoder
+        // emits the replacement character for it. Report it instead of
+        // silently swallowing the malformed tail.
         out += dec.decode(Uint8Array.of(carry), { stream: false });
         carry = null;
+        truncatedTail = true;
       } else {
         out += dec.decode();
       }
-      return out;
+      return { text: out, truncatedTail };
     }
   };
 }
@@ -1027,19 +1068,26 @@ function createStreamDecoder(meta){
 /* =============================================================
    Byte encoding (per record, so output never needs full memory)
    ============================================================= */
-function encodeCp1252Chunk(text){
+function encodeCp1252Chunk(text, stats){
   const bytes = [];
   for(let i=0;i<text.length;i++){
     const cp = text.charCodeAt(i);
     if(cp <= 0x7F) bytes.push(cp);
     else if(cp <= 0xFF) bytes.push(cp);
     else if(CP1252_MAP[text[i]] !== undefined) bytes.push(CP1252_MAP[text[i]]);
-    else bytes.push(0x3F);
+    else {
+      bytes.push(0x3F);
+      if(stats){
+        stats.cpLost++;
+        if(stats.cpLostFirst === null && currentRecordIdxForStats > 0) stats.cpLostFirst = currentRecordIdxForStats;
+        if(stats.cpLostFirst === null) stats.cpLostFirst = 1; // record #0 = header
+      }
+    }
   }
   return Uint8Array.from(bytes);
 }
-function textToBytes(meta, text){
-  if(meta.kind === 'cp1252') return encodeCp1252Chunk(text);
+function textToBytes(meta, text, stats){
+  if(meta.kind === 'cp1252') return encodeCp1252Chunk(text, stats || saveStats);
   if(meta.kind === 'utf-16le'){
     const out = new Uint8Array(text.length * 2);
     for(let i=0;i<text.length;i++){
@@ -1143,7 +1191,8 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress){
     }
   }
   const tail = dec.finish();
-  if(tail) await streamer.push(tail);
+  if(tail.text) await streamer.push(tail.text);
+  state.utf16TruncatedTail = tail.truncatedTail;
   await streamer.flush();
 }
 
@@ -1171,7 +1220,8 @@ const state = {
   },
   orderTarget: [],
   selection: null,
-  parsing: false
+  parsing: false,
+  utf16TruncatedTail: false
 };
 
 /* =============================================================
@@ -1652,6 +1702,9 @@ function showIssues(){
   const p = state.parseInfo;
   const mainCnt = state.headerNames.length;
   const list = [];
+  if(state.utf16TruncatedTail){
+    list.push('⚠️ This UTF-16 file ends with a broken odd byte (truncated code unit) — the last character was replaced with U+FFFD.');
+  }
   if(p.mismatchedRows > 0){
     const parts=[];
     p.rowFieldCounts.forEach((cnt,c)=>{ if(c !== mainCnt) parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`); });
@@ -1674,6 +1727,29 @@ function showIssues(){
     div.textContent = t;
     ul.appendChild(div);
   });
+}
+
+/* Post-save data-loss report; each line is only rendered when its
+   counter is nonzero. msg is the "Saved — …" toast already shown. */
+function buildSaveLossWarnings(){
+  const w = saveStats;
+  const out = [];
+  if(w.feReplaceChars > 0){
+    out.push(`✂️ ${w.feReplaceChars.toLocaleString()} embedded 0x14/0xFE chars in ${w.feReplaceRecs.toLocaleString()} record${w.feReplaceRecs===1?'':'s'} were rewritten as spaces (EDML structure protection). First at record #${w.feReplaceFirst===null?'header':w.feReplaceFirst}.`);
+  }
+  if(w.cpLost > 0){
+    out.push(`⚠️ ${w.cpLost.toLocaleString()} character${w.cpLost===1?'':'s'} cannot be represented in Windows-1252 and were written as '?'. First at record #${w.cpLostFirst===null?'header':w.cpLostFirst}.`);
+  }
+  return out;
+}
+function showSaveWarnings(successToast){
+  const extra = buildSaveLossWarnings();
+  if(extra.length === 0){
+    toast(successToast);
+    return;
+  }
+  toast(successToast + '  ⚠️ ' + extra.length + ' data-loss note(s): ' + extra.map(x=>x.slice(x.indexOf(' ')+1)).join(' · '));
+  console.warn('DAT Field Reorder save warnings:\n' + extra.join('\n'));
 }
 
 /* =============================================================
@@ -1750,6 +1826,7 @@ async function saveFile(){
   if(state.orderTarget.length === 0){ toast('⚠️ The new field order is empty.'); return; }
 
   const fmt = fmtInfo();
+  resetSaveStats();
   const downloadName = $('#outName').value.trim() || 'reordered.dat';
   const sink = createSink();
   const mode = await sink.begin(downloadName);
@@ -1758,6 +1835,10 @@ async function saveFile(){
     return;
   }
   if(mode === 'blob'){
+    if(state.file.size >= 1024 * 1024 * 1024 && !confirm('Save will accumulate the full output in browser memory.\n\nFor a file this large, use Chrome/Edge to stream straight to disk. Continue?')){
+      toast('Save cancelled.');
+      return;
+    }
     // If user has the giant file in a non-Chromium browser, advise.
     setBusy('Writing file…', 'Preparing output in browser memory (Blob). For multi-GB files use Chrome/Edge to stream straight to disk.');
   } else if(mode === 'stream'){
@@ -1842,6 +1923,7 @@ async function saveFile(){
     // Header row = kept fields in their NEW order. Removed fields are dropped
     // here and from every data row by reorderRecord.
     const newHeader = order.map(origIdx => sanitizeScalarValue(state.headerNames[origIdx]));
+    currentRecordIdxForStats = 0; // record #0 = header
     await writeLine(fmt.compose(newHeader));
 
     let rowCount = 0;
@@ -1857,6 +1939,7 @@ async function saveFile(){
       // Source record #0 is the original header — already replaced above.
       if(idx === 0) return;
       rowCount++;
+      currentRecordIdxForStats = rowCount + 1; // 1-based: header=1, first data row=2 …
       await writeLine(reorderRecord(rec));
       if(rowCount % ON_EVERY === 0){
         await new Promise(r => setTimeout(r, 0)); // let the UI breathe
@@ -1866,11 +1949,10 @@ async function saveFile(){
     await flushTrailingEol();
 
     const size = await sink.finish(downloadName);
-    if(size === null){
-      toast(`💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`);
-    } else {
-      toast(`💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`);
-    }
+    const okMsg = size === null
+      ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
+      : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
+    showSaveWarnings(okMsg);
   } catch(err){
     console.error(err);
     toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
@@ -2215,11 +2297,16 @@ async function saveClientFile(){
   if(!state.file){ toast('No file loaded.'); return; }
   if(cl.rows.length === 0){ toast('⚠️ 클라이언트 헤더 목록이 없습니다. 먼저 붙여넣고 Parse 하세요.'); return; }
   const fmt = fmtInfo();
+  resetSaveStats();
   const downloadName = (clOutName.value.trim() || 'client_mapped.dat');
   const sink = createSink();
   const mode = await sink.begin(downloadName);
   if(mode === 'cancelled'){ toast('Save cancelled.'); return; }
   if(mode === 'blob'){
+    if(state.file.size >= 1024 * 1024 * 1024 && !confirm('Save will accumulate the full output in browser memory.\n\nFor a file this large, use Chrome/Edge to stream straight to disk. Continue?')){
+      toast('Save cancelled.');
+      return;
+    }
     setBusy('Writing client file…', 'Preparing output in browser memory (Blob). For multi-GB files use Chrome/Edge to stream straight to disk.');
   } else if(mode === 'stream'){
     setBusy('Writing client file…', 'Saving directly to disk (streaming)…');
@@ -2251,12 +2338,14 @@ async function saveClientFile(){
     const flushTrailingEol = async ()=>{ if(wroteAny && state.origHadTrailingEOL) out(eolBytes); await flushOut(); };
 
     const newHeader = cl.rows.map(r => sanitizeScalarValue(r.name));
+    currentRecordIdxForStats = 0; // record #0 = header
     await writeLine(fmt.compose(newHeader));
 
     let rowCount = 0, lastPct = -1;
     await scanFile(state.file, state.detected, state.fmtKey, async (rec, idx) => {
       if(idx === 0) return;
       rowCount++;
+      currentRecordIdxForStats = rowCount + 1; // 1-based: header=1, first data row=2 …
       await writeLine(composeRow(rec));
       if(rowCount % 10000 === 0) await new Promise(r=>setTimeout(r,0));
     }, ({pct}) => {
@@ -2265,11 +2354,10 @@ async function saveClientFile(){
 
     await flushTrailingEol();
     const size = await sink.finish(downloadName);
-    if(size === null){
-      toast(`💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`);
-    } else {
-      toast(`💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`);
-    }
+    const okMsg = size === null
+      ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
+      : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
+    showSaveWarnings(okMsg);
   } catch(err){
     console.error(err);
     toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));

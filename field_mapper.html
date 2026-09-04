@@ -883,6 +883,10 @@ class RecordStreamer {
     this.q = d.quote;
     this.skip = d.skipDoubled;
     this.onRecord = onRecord;
+    // CSV is the only quoted dialect that permits fully unquoted records;
+    // FE/Concordance always wrap every field. Requiring the qualifier there
+    // is harmless, but for CSV it silently drops any line with no quotes.
+    this.qRequired = fmtKey !== 'csv';
     this.open = false;
     this.pending = '';
     this.recIdx = 0;
@@ -946,7 +950,9 @@ class RecordStreamer {
       }
       if((ch === '\r' || ch === '\n') && !open){
         const rec = b.slice(start, i);
-        if(rec.trim() !== '' && rec.indexOf(q) >= 0) await this._emit(rec);
+        // Unquoted CSV rows are valid records — only FE/Concordance demand a
+        // qualifier before a line may be treated as a record.
+        if(rec.trim() !== '' && (!this.qRequired || rec.indexOf(q) >= 0)) await this._emit(rec);
         if(ch === '\r' && b[i+1] === '\n') i++;
         i++;
         start = i;
@@ -974,7 +980,7 @@ class RecordStreamer {
       // Emitting it would silently merge/truncate fields at EOF.
       return { record: this.recIdx + 1 };
     }
-    if(p.trim() !== '' && p.indexOf(this.q) >= 0) await this._emit(p);
+    if(p.trim() !== '' && (!this.qRequired || p.indexOf(this.q) >= 0)) await this._emit(p);
     return null;
   }
 }
@@ -1167,11 +1173,16 @@ function detectFormat(text){
   const headTrim = head.trim();
   if(caret >= 2 && headTrim.startsWith('^') && head.includes('^|')) return 'cc';
   const pipe = countChar(head, '|');
+  const comma = countChar(head, ',');
   const q = head.indexOf('"');
   if(q === 0 && head.includes('","')) return 'csv';
   if(head.includes('\t')) return 'tsv';
   if(pipe >= 2) return 'pipe';
   if(q >= 0) return 'csv';
+  // A bare comma-separated header with no double quotes is still CSV, e.g.
+  // DOCID,BEGDOC,CUSTODIAN — without this it fell through to 'pipe' and every
+  // record became a single giant field.
+  if(comma >= 1) return 'csv';
   if(feCount > 0) return 'fe';
   if(caret > 0) return 'cc';
   return 'pipe';
@@ -2073,7 +2084,8 @@ async function saveFile(){
 /* =============================================================
    Client Header Map mode
    Output header = pasted client header list, in order.
-   Each client header may link to one OUR field index (or empty).
+   Each client header may link to one OUR field index (or empty);
+   a single OUR field may feed several client headers at once (1:N).
    ============================================================= */
 
 const cl = {
@@ -2170,9 +2182,18 @@ function parsePastedClientHeaders(text){
 }
 
 /* Row mapping helpers ----------------------------------------- */
+/* srcIdx -> array of client row indices currently using that source.
+   One source field may feed many client headers (1:N), so every linked
+   row is collected instead of overwriting a single mapping. */
 function clUsedBySrc(){
-  const used = new Map(); // srcIdx -> rowIdx
-  cl.rows.forEach((r,ri)=>{ if(r.mapped !== null) used.set(r.mapped, ri); });
+  const used = new Map(); // srcIdx -> rowIdx[]
+  cl.rows.forEach((r,ri)=>{
+    if(r.mapped !== null){
+      const arr = used.get(r.mapped);
+      if(arr) arr.push(ri);
+      else used.set(r.mapped, [ri]);
+    }
+  });
   return used;
 }
 
@@ -2188,14 +2209,9 @@ function clUnmapRow(pos){
 function clMapSrcToRow(srcIdx, rowIdx){
   if(cl.sel === null) return false;
   if(srcIdx == null || rowIdx == null || !cl.rows[rowIdx]) return false;
-  // Detach this row's previous mapping.
-  cl.rows[rowIdx].mapped = null;
-  // Detach the OUR field wherever else it was mapped (one OUR field → one column).
-  const used = clUsedBySrc();
-  const prevRow = used.get(srcIdx);
-  if(prevRow !== undefined && prevRow !== rowIdx){
-    cl.rows[prevRow].mapped = null;
-  }
+  // Link only this row. Other client rows may already point at the same source
+  // field (e.g. BEGDOC → Bates_Begin AND BEGDOC → Prod_Bates) — those 1:N
+  // mappings are intentionally preserved.
   cl.rows[rowIdx].mapped = srcIdx;
   return true;
 }
@@ -2247,27 +2263,32 @@ function renderClSrc(){
   clSrcCount.textContent = `${state.headerNames.length} fields`;
   clSrcList.innerHTML = '';
   state.headerNames.forEach((name,i)=>{
-    const mappedRow = used.get(i);
+    const mappedRows = used.get(i) || [];
     if(q && !name.toLowerCase().includes(q)) return;
     const row = document.createElement('div');
-    row.className = 'field-row' + (mappedRow !== undefined ? ' used' : '');
-    row.style.background = mappedRow !== undefined ? '#e8f6ec' : '';
+    row.className = 'field-row' + (mappedRows.length ? ' used' : '');
+    row.style.background = mappedRows.length ? '#e8f6ec' : '';
     const num = document.createElement('span'); num.className='idx'; num.textContent=String(i+1);
     const nm = document.createElement('span'); nm.className='nm'; nm.textContent=name; nm.title=name;
     row.append(num, nm);
-    if(mappedRow !== undefined){
+    if(mappedRows.length){
       const st = document.createElement('span');
       st.className='badge ok src-field-status';
-      st.textContent = '→ ' + cl.rows[mappedRow].name;
-      st.title = `Mapped to client header #${mappedRow+1}`;
+      st.textContent = mappedRows.length === 1
+        ? '→ ' + cl.rows[mappedRows[0]].name
+        : `→ ${mappedRows.length} headers`;
+      st.title = mappedRows.map(ri=>`#${ri+1} ${cl.rows[ri].name}`).join(' · ');
       row.append(st);
-    } else {
-      const add = document.createElement('span'); add.className='add-ic'; add.textContent='＋'; add.title='Map to selected client header';
-      row.append(add);
     }
+    const add = document.createElement('span');
+    add.className='add-ic'; add.textContent='＋';
+    add.title = mappedRows.length
+      ? 'Map to the selected client header too (one source may feed several headers)'
+      : 'Map to selected client header';
+    row.append(add);
     row.addEventListener('click', ()=>{
       if(cl.sel === null){
-        toast('⚠️ 먼저 우측에서 클라이언트 헤더 행을 선택하세요.');
+        toast('⚠️ First select a client header row on the right.');
         return;
       }
       const ok = clMapSrcToRow(i, cl.sel);
@@ -2301,7 +2322,7 @@ function renderClRows(){
   const unmapped = cl.rows.filter(r=>r.mapped===null).length;
   clWarnUnmapped.classList.toggle('hidden', unmapped===0);
   let b = clWarnUnmapped.querySelector('b');
-  if(b) b.textContent = `아직 매핑 안 된 클라이언트 헤더 ${unmapped}개`;
+  if(b) b.textContent = `${unmapped} unmapped client header${unmapped===1?'':'s'}`;
 
   clRowsList.innerHTML = '';
   cl.rows.forEach((r,pos)=>{
@@ -2325,7 +2346,7 @@ function renderClRows(){
     }
     // Clicking the row selects it; clicking a mapped chip (except its ✕) also selects
     chip.addEventListener('click', e=>{ e.stopPropagation(); selectClRow(pos); });
-    // 매핑 칩을 좌측(번호 옆)에 두면 우측이 비워져 헤더명이 넓게 잘 보인다.
+    // The mapping chip sits left (next to the number) so the header name gets wide room.
     row.append(no, chip, nm);
     row.addEventListener('click', ()=> selectClRow(pos));
     clRowsList.appendChild(row);
@@ -2347,7 +2368,7 @@ function renderClPreview(){
     clPreviewWrap.classList.add('hidden');
     clPreviewThead.innerHTML=''; clPreviewTbody.innerHTML='';
     clPreviewNote.classList.remove('hidden');
-    clPreviewNote.textContent = '클라이언트 헤더 목록을 붙여넣고 Parse를 누르면 이곳에서 출력을 미리 볼 수 있습니다.';
+    clPreviewNote.textContent = 'After you paste the client header list and press Parse, the resulting output is shown here.';
     return;
   }
   clPreviewNote.classList.add('hidden');
@@ -2404,7 +2425,7 @@ function renderClPreview(){
    but emits client header names and only mapped source values) */
 async function saveClientFile(){
   if(!state.file){ toast('No file loaded.'); return; }
-  if(cl.rows.length === 0){ toast('⚠️ 클라이언트 헤더 목록이 없습니다. 먼저 붙여넣고 Parse 하세요.'); return; }
+  if(cl.rows.length === 0){ toast('⚠️ No client header list. Paste headers above and press Parse first.'); return; }
 
   // ---- Save guards (hard stops before any file dialog) ----
   const unclosed = unclosedQualifierInfo();
@@ -2494,7 +2515,7 @@ function bindClientMode(){
   btnClParsePaste.addEventListener('click', ()=>{
     const out = parsePastedClientHeaders(clPasteText.value);
     if(out.length === 0){
-      toast('⚠️ 헤더를 인식하지 못했습니다. 탭/콤마/파이프 구분 또는 줄 단위로 붙여넣어 주세요.');
+      toast('⚠️ No headers recognized — paste tab/comma/pipe-separated values or one header per line.');
       return;
     }
     // Remove duplicate headers? Duplicates are legal in some systems but confusing —
@@ -2504,7 +2525,7 @@ function bindClientMode(){
     clPastePreview.textContent = `${out.length} client header${out.length===1?'':'s'} parsed`;
     clPastePreview.title = out.map((r,ix)=>`${ix+1}. ${r.name}`).join('\n');
     clRenderAll();
-    toast(`✅ ${out.length}개 클라이언트 헤더 로드 — 이 순서가 출력 헤더가 됩니다.`);
+    toast(`✅ ${out.length} client header${out.length===1?'':'s'} loaded — this order becomes the output header.`);
   });
 
   btnClClearPaste.addEventListener('click', ()=>{
@@ -2525,7 +2546,7 @@ function bindClientMode(){
   });
 
   $('#btnClAutoGuess').addEventListener('click', ()=>{
-    if(cl.rows.length === 0){ toast('먼저 클라이언트 헤더를 로드하세요.'); return; }
+    if(cl.rows.length === 0){ toast('Load client headers first (paste & Parse).'); return; }
     const unnorm = (s)=> String(s).toLowerCase().replace(/[^a-z0-9\uAC00-\uD7A3]+/g,'');
     const srcNames = state.headerNames;
     let matched = 0;
@@ -2556,23 +2577,22 @@ function bindClientMode(){
         }
       }
       if(hit !== null){
-        // ensure no double use — clear any previous occupant
-        const prev = cl.rows.findIndex(o=>o.mapped===hit);
-        if(prev !== -1) cl.rows[prev].mapped = null;
+        // 1:N reuse is allowed — don't steal this source from another header
+        // that already matched it; simply add the link on this row too.
         r.mapped = hit;
         matched++;
       }
     });
     clRenderAll();
-    toast(`✨ 자동 매칭 완료 — ${matched}개 연결 (나머지는 수동으로 연결하세요)`);
+    toast(`✨ Auto-match complete — ${matched} link${matched===1?'':'s'} created. Map any leftovers manually.`);
   });
 
   const btn = (id,fn)=>{ const el=document.getElementById(id); if(el) el.addEventListener('click', fn); };
-  btn('btnClMoveTop', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } clMoveRow(cl.sel,0); });
-  btn('btnClMoveUp', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } clMoveRow(cl.sel, Math.max(0, cl.sel-1)); });
-  btn('btnClMoveDown', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } clMoveRow(cl.sel, Math.min(cl.rows.length-1, cl.sel+1)); });
-  btn('btnClMoveBottom', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } clMoveRow(cl.sel, cl.rows.length-1); });
-  btn('btnClRemoveRow', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } const n = cl.rows[cl.sel].name; clRemoveRow(cl.sel); toast(`Removed client row: ${n}`); });
+  btn('btnClMoveTop', ()=>{ if(cl.sel===null){ toast('Select a client header row first.'); return; } clMoveRow(cl.sel,0); });
+  btn('btnClMoveUp', ()=>{ if(cl.sel===null){ toast('Select a client header row first.'); return; } clMoveRow(cl.sel, Math.max(0, cl.sel-1)); });
+  btn('btnClMoveDown', ()=>{ if(cl.sel===null){ toast('Select a client header row first.'); return; } clMoveRow(cl.sel, Math.min(cl.rows.length-1, cl.sel+1)); });
+  btn('btnClMoveBottom', ()=>{ if(cl.sel===null){ toast('Select a client header row first.'); return; } clMoveRow(cl.sel, cl.rows.length-1); });
+  btn('btnClRemoveRow', ()=>{ if(cl.sel===null){ toast('Select a client header row first.'); return; } const n = cl.rows[cl.sel].name; clRemoveRow(cl.sel); toast(`Removed client row: ${n}`); });
   btn('btnClSave', saveClientFile);
 
   // Mode tabs navigation

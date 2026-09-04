@@ -1,10 +1,12 @@
 <!DOCTYPE html>
+
+<!-- Field Mapper v2.9.0 - FE/DC4 fail-closed hardening -->
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DAT Field Reorder — .dat / Load File Reordering & Removal</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DAT Field Reorder — .dat / Load File Reordering &amp; Removal</title>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🗂️&lt;/text&gt;&lt;/svg&gt;" rel="icon"/>
 <style>
   :root{
     --bg:#eef1f6;
@@ -396,392 +398,430 @@
     .client-pane{height:auto;max-height:520px}
     #clSrcPane{height:auto;max-height:520px}
   }
+
+  /* Start-first workflow selector */
+  .mode-choice-card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    box-shadow:var(--shadow); padding:22px; margin-bottom:16px;
+  }
+  .mode-choice-copy{text-align:center;margin-bottom:16px}
+  .mode-choice-copy .eyebrow{display:block;font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--brand);margin-bottom:5px}
+  .mode-choice-copy h2{font-size:20px;margin:0 0 5px}
+  .mode-choice-copy p{margin:0;color:var(--muted);font-size:13px}
+  .startup-mode-tabs{
+    display:grid; grid-template-columns:repeat(3, 224px); justify-content:center;
+    align-items:stretch; gap:12px; width:100%; margin:0;
+  }
+  .startup-mode-tabs .mtab{
+    box-sizing:border-box; width:224px; min-width:224px; max-width:224px; height:86px;
+    min-height:86px; padding:12px 14px; overflow:hidden; white-space:normal;
+    display:grid; grid-template-columns:30px minmax(0,1fr); align-items:center; text-align:left;
+  }
+  .startup-mode-tabs .mtab .mi{font-size:22px;line-height:1}
+  .startup-mode-tabs .mtab > span:last-child{min-width:0;font-weight:800;line-height:1.2;overflow:hidden}
+  .startup-mode-tabs .mtab small{
+    display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
+    overflow:hidden; margin-top:5px; font-size:11px; line-height:1.25; font-weight:500;
+    color:var(--muted); overflow-wrap:anywhere;
+  }
+  .startup-mode-tabs .mtab.on small{color:inherit;opacity:.82}
+  #modeChoiceCard.mode-chosen{padding:14px 18px}
+  #modeChoiceCard.mode-chosen .mode-choice-copy{display:none}
+  #modeChoiceCard.mode-chosen .startup-mode-tabs .mtab{height:66px;min-height:66px}
+  @media(max-width:780px){
+    .startup-mode-tabs{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .startup-mode-tabs .mtab{width:100%;min-width:0;max-width:none;height:82px;padding:10px;grid-template-columns:1fr;text-align:center;align-content:center}
+    .startup-mode-tabs .mtab .mi{display:none}
+  }
+  @media(max-width:520px){
+    .startup-mode-tabs{grid-template-columns:1fr}
+    .startup-mode-tabs .mtab{height:64px;min-height:64px;grid-template-columns:30px minmax(0,1fr);text-align:left}
+    .startup-mode-tabs .mtab .mi{display:block}
+  }
+
 </style>
 </head>
 <body>
-
+<div style="background:#fff3cd;color:#5c4300;padding:8px 14px;border-bottom:1px solid #e5c76b;font:600 13px system-ui">Hardened scope: FE/DC4 DAT only. Concordance caret, TSV, Pipe, CSV and Windows-1252/CP1252 are blocked.</div>
 <header class="topbar">
-  <span class="creator-credit">Hyunsoo Lee</span>
-  <div class="brand">
-    <div class="logo">🗂️</div>
-    <div style="min-width:0">
-      <h1>DAT Field Reorder</h1>
-      <p>eDiscovery Load File Field Ordering & Removal</p>
-    </div>
-  </div>
-  <div class="privacy-badge" title="Your file is processed entirely in the browser. Nothing is uploaded.">
+<span class="creator-credit">Hyunsoo Lee</span>
+<div class="brand">
+<div class="logo">🗂️</div>
+<div style="min-width:0">
+<h1>DAT Field Reorder</h1>
+<p>eDiscovery Load File Field Ordering &amp; Removal</p>
+</div>
+</div>
+<div class="privacy-badge" title="Your file is processed entirely in the browser. Nothing is uploaded.">
     🛡️ 100% Local Processing · No Upload · No Server
   </div>
 </header>
-
 <main>
-  <section class="go-steps" id="guide">
-    <div class="step-item"><div class="step-num">1</div><div>
-      <b>Load .dat</b><span>Drop or browse. Format (þ, ^|^, CSV, Tab, Pipe) and encoding are detected automatically.</span></div></div>
-    <div class="step-item"><div class="step-num">2</div><div>
-      <b>Reorder / Remove Fields</b><span>Drag rows or use buttons. Press 🗑 to remove any field from output.</span></div></div>
-    <div class="step-item"><div class="step-num">3</div><div>
-      <b>Save New File</b><span>Writes the <b>same detected format & encoding</b> as the source. Original is untouched.</span></div></div>
-  </section>
-
-  <!-- File select -->
-  <section class="card" id="fileCard">
-    <div id="dropZone" tabindex="0" role="button" aria-label="Open load file">
-      <span class="dz-icon">📄</span>
-      <div class="big">Drop a load file here</div>
-      <div class="sub">or <u>click to browse</u> &middot; supports <b>þ (0xFE)</b>, <b>Concordance ^|^</b>, CSV, Tab, Pipe &middot; first row = header</div>
-      <input type="file" id="fileInput" accept=".dat,.txt,.csv,.load,application/octet-stream" hidden>
-    </div>
-
-    <div id="fmtBar" class="hidden">
-      <span class="f-label">📐 Detected Load Format</span>
-      <span class="badge ok" id="fmtBadge">—</span>
-      <span style="flex:1"></span>
-      <label>Override&nbsp;
+<section aria-labelledby="modeChoiceTitle" class="mode-choice-card" id="modeChoiceCard">
+<div class="mode-choice-copy">
+<span class="eyebrow">START HERE</span>
+<h2 id="modeChoiceTitle">Choose a workflow</h2>
+<p>Select the task first. The correct file input and workspace will open next.</p>
+</div>
+<div class="mode-tabs startup-mode-tabs" id="modeTabs">
+<button class="mtab" data-mode="reorder" title="Reorder source fields freely — drag / reorder / remove" type="button">
+<span class="mi">🔀</span><span>Reorder Mode<small>Reorder source fields freely</small></span>
+</button>
+<button class="mtab" data-mode="client" title="Paste client headers → link our fields → save" type="button">
+<span class="mi">📋</span><span>Client Header Map<small>Map fields to client headers</small></span>
+</button>
+<button class="mtab" data-mode="validator" title="Verify a saved output file against the original — post-save file re-read validation" type="button">
+<span class="mi">✅</span><span>Validator<small>Verify saved file vs original</small></span>
+</button>
+</div>
+</section>
+<section class="go-steps hidden" id="guide">
+<div class="step-item"><div class="step-num">1</div><div>
+<b>Load .dat</b><span>Drop or browse. Format (þ, ^|^, CSV, Tab, Pipe) and encoding are detected automatically.</span></div></div>
+<div class="step-item"><div class="step-num">2</div><div>
+<b>Reorder / Remove Fields</b><span>Drag rows or use buttons. Press 🗑 to remove any field from output.</span></div></div>
+<div class="step-item"><div class="step-num">3</div><div>
+<b>Save New File</b><span>Writes the <b>same detected format &amp; encoding</b> as the source. Original is untouched.</span></div></div>
+</section>
+<!-- File select -->
+<section class="card hidden" id="fileCard">
+<div aria-label="Open load file" id="dropZone" role="button" tabindex="0">
+<span class="dz-icon">📄</span>
+<div class="big">Drop a load file here</div>
+<div class="sub">or <u>click to browse</u> · FE/DC4 only: qualifier <b>þ (U+00FE)</b>, delimiter <b>ASCII 20 / DC4 (U+0014)</b> · first row = header</div>
+<input accept=".dat,.txt,.load,application/octet-stream" hidden="" id="fileInput" type="file"/>
+</div>
+<div class="hidden" id="fmtBar">
+<span class="f-label">📐 Detected Load Format</span>
+<span class="badge ok" id="fmtBadge">—</span>
+<span style="flex:1"></span>
+<label>Override 
         <select id="fmtOverride">
-          <option value="">Auto (recommended)</option>
-          <option value="fe">þ (0xFE)</option>
-          <option value="cc">Concordance ^|^</option>
-          <option value="csv">CSV (",")</option>
-          <option value="tsv">Tab-delimited</option>
-          <option value="pipe">Pipe (|)</option>
-        </select>
-      </label>
-      <button class="btn" id="btnReParse" title="Re-parse the file using the selected format">↺ Re-parse</button>
-    </div>
-
-    <div id="fileSummary" class="hidden"></div>
-  </section>
-
-  <!-- Workspace -->
-  <section id="workspace" class="hidden">
-
-    <div class="mode-tabs" id="modeTabs">
-      <button class="mtab on" type="button" data-mode="reorder" title="Reorder source fields freely — drag / reorder / remove">
-        <span class="mi">🔀</span><span>Reorder Mode<small>Reorder source fields freely</small></span>
-      </button>
-      <button class="mtab" type="button" data-mode="client" title="Paste client headers → link our fields → save">
-        <span class="mi">📋</span><span>Client Header Map<small>Map fields to client headers</small></span>
-      </button>
-      <button class="mtab" type="button" data-mode="validator" title="Verify a saved output file against the original — post-save file re-read validation">
-        <span class="mi">✅</span><span>Validator<small>Verify saved file vs original</small></span>
-      </button>
-    </div>
-
-    <div id="reorderArea">
-    <div class="workspace-grid">
-      <!-- Source fields -->
-      <article class="card pane">
-        <div class="pane-head">
-          <h3>📋 Source Fields <span id="srcCountTxt" class="badge gray"></span></h3>
-        </div>
-        <div class="search-box">
-          <span class="ico">🔍</span>
-          <input type="text" id="srcSearch" placeholder="Search fields (e.g. Bates, Custodian)" autocomplete="off">
-        </div>
-        <div class="toolbar">
-          <button class="btn primary sm" id="btnAddAll" title="Add every remaining field to the end of the new order">Add All Fields</button>
-          <button class="btn sm" id="btnResetOrder" title="Restore the original header order for every field">↺ Reset</button>
-        </div>
-        <div class="listbox" id="sourceList"></div>
-        <div class="preview-note" style="margin-top:8px;margin-bottom:0">Click a field to append it to the right ("New Field Order").</div>
-      </article>
-
-      <!-- New field order -->
-      <article class="card pane">
-        <div class="pane-head">
-          <h3>🎯 New Field Order <span id="tgtCountTxt" class="badge gray"></span></h3>
-          <div class="meta">Select a row &rarr; Drag · Top · Up · Down · Bottom · <b>🗑 Remove</b></div>
-        </div>
-        <div class="toolbar">
-          <button class="btn sm" id="btnMoveTop">⤒ Top</button>
-          <button class="btn sm" id="btnMoveUp">▲ Up</button>
-          <button class="btn sm" id="btnMoveDown">▼ Down</button>
-          <button class="btn sm" id="btnMoveBottom">⤓ Bottom</button>
-          <span style="flex:1"></span>
-          <button class="btn sm danger" id="btnShowRemoved">View Removed</button>
-        </div>
-        <div id="targetContainer">
-          <div class="empty-target-box" id="emptyTarget">
-            No fields in the new order yet.<br>
-            Click fields on the left, or press <b>&laquo;Add All Fields&raquo;</b> to begin with the full original header.<br>
-            <small class="light-txt">Typical flow: Add All &rarr; drag to reorder &rarr; press 🗑 on fields you don&rsquo;t need.</small>
-          </div>
-          <div class="listbox hidden" id="targetList"></div>
-        </div>
-        <div class="warning-box hidden" id="removedWarn">
-          <span>🗑️ <b>Removed fields</b> — excluded from the header and from every data row in the saved file:</span>
-        </div>
-      </article>
-    </div>
-
-    <!-- Preview -->
-    <article class="card">
-      <div class="card-h">
-        <h2>🔎 Preview — New Field Order</h2>
-        <span class="meta">Header + first 4 data records &middot; <span id="previewBadge"></span></span>
-      </div>
-      <div class="preview-note" id="previewNote">Build the new order to see a live preview here.</div>
-      <div class="table-wrap hidden" id="previewWrap">
-        <table id="previewTable">
-          <thead id="previewHead"></thead>
-          <tbody id="previewBody"></tbody>
-        </table>
-      </div>
-    </article>
-
-    <!-- Save -->
-    <article class="card">
-      <div class="card-h">
-        <h2>💾 Save</h2>
-        <span class="meta" id="saveFormatInfo"></span>
-      </div>
-      <div class="warning-box" style="margin-top:0;margin-bottom:12px" id="emitNote">
+<option value="">Auto (recommended)</option>
+<option value="fe">þ (0xFE)</option>
+</select>
+</label>
+<button class="btn" id="btnReParse" title="Re-parse the file using the selected format">↺ Re-parse</button>
+</div>
+<div class="hidden" id="fileSummary"></div>
+</section>
+<!-- Workspace -->
+<section class="hidden" id="workspace">
+<div id="reorderArea">
+<div class="workspace-grid">
+<!-- Source fields -->
+<article class="card pane">
+<div class="pane-head">
+<h3>📋 Source Fields <span class="badge gray" id="srcCountTxt"></span></h3>
+</div>
+<div class="search-box">
+<span class="ico">🔍</span>
+<input autocomplete="off" id="srcSearch" placeholder="Search fields (e.g. Bates, Custodian)" type="text"/>
+</div>
+<div class="toolbar">
+<button class="btn primary sm" id="btnAddAll" title="Add every remaining field to the end of the new order">Add All Fields</button>
+<button class="btn sm" id="btnResetOrder" title="Restore the original header order for every field">↺ Reset</button>
+</div>
+<div class="listbox" id="sourceList"></div>
+<div class="preview-note" style="margin-top:8px;margin-bottom:0">Click a field to append it to the right ("New Field Order").</div>
+</article>
+<!-- New field order -->
+<article class="card pane">
+<div class="pane-head">
+<h3>🎯 New Field Order <span class="badge gray" id="tgtCountTxt"></span></h3>
+<div class="meta">Select a row → Drag · Top · Up · Down · Bottom · <b>🗑 Remove</b></div>
+</div>
+<div class="toolbar">
+<button class="btn sm" id="btnMoveTop">⤒ Top</button>
+<button class="btn sm" id="btnMoveUp">▲ Up</button>
+<button class="btn sm" id="btnMoveDown">▼ Down</button>
+<button class="btn sm" id="btnMoveBottom">⤓ Bottom</button>
+<span style="flex:1"></span>
+<button class="btn sm danger" id="btnShowRemoved">View Removed</button>
+</div>
+<div id="targetContainer">
+<div class="empty-target-box" id="emptyTarget">
+            No fields in the new order yet.<br/>
+            Click fields on the left, or press <b>«Add All Fields»</b> to begin with the full original header.<br/>
+<small class="light-txt">Typical flow: Add All → drag to reorder → press 🗑 on fields you don’t need.</small>
+</div>
+<div class="listbox hidden" id="targetList"></div>
+</div>
+<div class="warning-box hidden" id="removedWarn">
+<span>🗑️ <b>Removed fields</b> — excluded from the header and from every data row in the saved file:</span>
+</div>
+</article>
+</div>
+<!-- Preview -->
+<article class="card">
+<div class="card-h">
+<h2>🔎 Preview — New Field Order</h2>
+<span class="meta">Header + first 4 data records · <span id="previewBadge"></span></span>
+</div>
+<div class="preview-note" id="previewNote">Build the new order to see a live preview here.</div>
+<div class="table-wrap hidden" id="previewWrap">
+<table id="previewTable">
+<thead id="previewHead"></thead>
+<tbody id="previewBody"></tbody>
+</table>
+</div>
+</article>
+<!-- Save -->
+<article class="card">
+<div class="card-h">
+<h2>💾 Save</h2>
+<span class="meta" id="saveFormatInfo"></span>
+</div>
+<div class="warning-box" id="emitNote" style="margin-top:0;margin-bottom:12px">
         Output is written using the <b>same delimiter format and encoding</b> that was detected (or chosen) for the source file.
       </div>
-      <div class="warning-box warn-blocked hidden" id="reorderUnclosedWarn">
-        <span>⛔ <b>Save blocked</b> — the source file ends with an unclosed text qualifier. The final record is incomplete, so saving would silently drop it. Fix the file end and reload.</span>
-      </div>
-      <div class="save-guard-note hidden" id="reorderMismatchOverride" title="Only tick this if the mixed column counts are intentional and you accept the resulting layout">
-        <input type="checkbox" id="reorderMismatchCbx">
-        <span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
-      </div>
-        <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 validation report (transformation reconciliation, data loss, removed fields). Report is shown after save; download it with the Report button.">
-          <input type="checkbox" id="reorderAuditCbx" checked>
-        <span>🛡️ Create audit report (SHA-256) after saving</span>
-      </label>
-      <div class="save-area">
-        <div class="grow">
-          <label style="font-size:12px;color:var(--muted)">Output file name</label>
-          <input type="text" id="outName" value="reordered.dat" spellcheck="false">
-        </div>
-        <button class="btn-big" id="btnSave">⬇ Download New File</button>
-      </div>
-    </article>
-    </div><!-- /reorderArea -->
-
-    <!-- ============ Client-map workspace ============ -->
-    <div id="clientArea" class="hidden">
-
-      <div class="card" id="clPasteCard" style="margin-bottom:18px">
-        <div class="card-h">
-          <h2>📋 Step 1 — Paste Client Headers</h2>
-          <span class="meta" id="clHeaderInfo"></span>
-        </div>
-        <p style="font-size:12.8px;color:var(--muted);margin-bottom:9px;line-height:1.7">
+<div class="warning-box warn-blocked hidden" id="reorderUnclosedWarn">
+<span>⛔ <b>Save blocked</b> — the source file ends with an unclosed text qualifier. The final record is incomplete, so saving would silently drop it. Fix the file end and reload.</span>
+</div>
+<div class="save-guard-note hidden" id="reorderMismatchOverride" title="Only tick this if the mixed column counts are intentional and you accept the resulting layout">
+<input id="reorderMismatchCbx" type="checkbox"/>
+<span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
+</div>
+<label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 transformation audit report (transformation reconciliation, data loss, removed fields). Report is shown after save; download it with the Report button.">
+<input checked="" id="reorderAuditCbx" type="checkbox"/>
+<span>🛡️ Create transformation audit report (SHA-256) after saving</span>
+</label>
+<div class="save-area">
+<div class="grow">
+<label style="font-size:12px;color:var(--muted)">Output file name</label>
+<input id="outName" spellcheck="false" type="text" value="reordered.dat"/>
+</div>
+<button class="btn-big" id="btnSave">⬇ Download New File</button>
+</div>
+</article>
+</div><!-- /reorderArea -->
+<!-- ============ Client-map workspace ============ -->
+<div class="hidden" id="clientArea">
+<div class="card" id="clPasteCard" style="margin-bottom:18px">
+<div class="card-h">
+<h2>📋 Step 1 — Paste Client Headers</h2>
+<span class="meta" id="clHeaderInfo"></span>
+</div>
+<p style="font-size:12.8px;color:var(--muted);margin-bottom:9px;line-height:1.7">
           Copy the <b>header row the client requires</b> (or a vertical single-column list) from Excel and paste it below.
           The <b>order pasted here becomes the final output header order</b>.
           You can also paste a 2-column field map (left = our field, right = client header); in that case the <b>right column</b> is used as the output header.
         </p>
-        <textarea id="clPasteText" spellcheck="false"
-          placeholder="Control Number&#10;Custodian&#10;Bates Number&#10;... (one header per line)&#10;&#10;Or copy a single Excel row:&#10;Control Number&#9;Custodian&#9;Bates Number&#9;...&#10;&#10;Or a 2-column field map (our field / client header):&#10;CNUMBER&#9;Control Number&#10;CUSTODIAN&#9;Custodian&#10;..."></textarea>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:11px">
-          <button class="btn primary" id="btnClParsePaste">✔ Parse Header List</button>
-          <button class="btn" id="btnClClearPaste">Clear</button>
-          <span class="cl-sample" id="clPastePreview"></span>
-        </div>
-      </div>
+<textarea id="clPasteText" placeholder="Control Number
+Custodian
+Bates Number
+... (one header per line)
 
-      <div id="clGridArea" class="hidden">
-      <div class="client-grid">
-        <!-- Our source fields -->
-        <article class="card client-pane" id="clSrcPane">
-          <div class="pane-head">
-            <h3>📋 Our Fields (Original .dat fields) <span id="clSrcCount" class="badge gray"></span></h3>
-          </div>
-          <div class="search-box">
-            <span class="ico">🔍</span>
-            <input type="text" id="clSrcSearch" placeholder="Search our fields…" autocomplete="off">
-          </div>
-          <div class="toolbar">
-            <button class="btn sm" id="btnClUnlinkAll">✕ Unmap All</button>
-            <button class="btn sm" id="btnClAutoGuess" title="Automatically match client headers to similarly named source fields (normalized name comparison)">✨ Auto-Match</button>
-          </div>
-          <div class="listbox" id="clSrcList"></div>
-          <div class="preview-note" style="margin-top:8px;margin-bottom:0">
-            <b>How to use:</b> ① click a client header row on the right ② click one of our fields on the left → its value is linked to that slot.
-          </div>
-        </article>
+Or copy a single Excel row:
+Control Number	Custodian	Bates Number	...
 
-        <!-- Client headers -->
-        <article class="card client-pane">
-          <div class="pane-head">
-            <h3>📑 Client Headers (Final Output Order) <span id="clRowCountTxt" class="badge gray"></span></h3>
-            <div class="meta">Select a row, then click a field on the left to map it</div>
+Or a 2-column field map (our field / client header):
+CNUMBER	Control Number
+CUSTODIAN	Custodian
+..." spellcheck="false"></textarea>
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:11px">
+<button class="btn primary" id="btnClParsePaste">✔ Parse Header List</button>
+<button class="btn" id="btnClClearPaste">Clear</button>
+<span class="cl-sample" id="clPastePreview"></span>
+</div>
+</div>
+<div class="hidden" id="clGridArea">
+<div class="client-grid">
+<!-- Our source fields -->
+<article class="card client-pane" id="clSrcPane">
+<div class="pane-head">
+<h3>📋 Our Fields (Original .dat fields) <span class="badge gray" id="clSrcCount"></span></h3>
+</div>
+<div class="search-box">
+<span class="ico">🔍</span>
+<input autocomplete="off" id="clSrcSearch" placeholder="Search our fields…" type="text"/>
+</div>
+<div class="toolbar">
+<button class="btn sm" id="btnClUnlinkAll">✕ Unmap All</button>
+<button class="btn sm" id="btnClAutoGuess" title="Automatically match client headers to similarly named source fields (normalized name comparison)">✨ Auto-Match</button>
+</div>
+<div class="listbox" id="clSrcList"></div>
+<div class="preview-note" style="margin-top:8px;margin-bottom:0">
+<b>How to use:</b> ① click a client header row on the right ② click one of our fields on the left → its value is linked to that slot.
           </div>
-          <div class="toolbar">
-            <button class="btn sm" id="btnClMoveTop">⤒ Top</button>
-            <button class="btn sm" id="btnClMoveUp">▲ Up</button>
-            <button class="btn sm" id="btnClMoveDown">▼ Down</button>
-            <button class="btn sm" id="btnClMoveBottom">⤓ Bottom</button>
-            <span style="flex:1"></span>
-            <button class="btn sm danger" id="btnClRemoveRow">🗑 Remove row</button>
-          </div>
-          <div id="clRowsWrap">
-            <div class="empty-target-box" id="clEmptyRows">
+</article>
+<!-- Client headers -->
+<article class="card client-pane">
+<div class="pane-head">
+<h3>📑 Client Headers (Final Output Order) <span class="badge gray" id="clRowCountTxt"></span></h3>
+<div class="meta">Select a row, then click a field on the left to map it</div>
+</div>
+<div class="toolbar">
+<button class="btn sm" id="btnClMoveTop">⤒ Top</button>
+<button class="btn sm" id="btnClMoveUp">▲ Up</button>
+<button class="btn sm" id="btnClMoveDown">▼ Down</button>
+<button class="btn sm" id="btnClMoveBottom">⤓ Bottom</button>
+<span style="flex:1"></span>
+<button class="btn sm danger" id="btnClRemoveRow">🗑 Remove row</button>
+</div>
+<div id="clRowsWrap">
+<div class="empty-target-box" id="clEmptyRows">
               Paste the client headers above and press <b>Parse</b> — they will be listed here.
             </div>
-            <div class="listbox hidden" id="clRowsList"></div>
-          </div>
-          <div class="warning-box hidden" id="clWarnUnmapped" style="margin-top:8px">
-            <span>⚠️ <b>N client headers not yet mapped</b> — these headers are still included in the output, but their data values will be empty.</span>
-          </div>
-        </article>
-      </div>
-
-      <!-- Client preview -->
-      <article class="card" style="margin-top:18px">
-        <div class="card-h">
-          <h2>🔎 Preview — Client Header Order</h2>
-          <span class="meta">First 4 data records &middot; <span id="clPreviewBadge"></span></span>
+<div class="listbox hidden" id="clRowsList"></div>
+</div>
+<div class="warning-box hidden" id="clWarnUnmapped" style="margin-top:8px">
+<span>⚠️ <b>N client headers not yet mapped</b> — these headers are still included in the output, but their data values will be empty.</span>
+</div>
+</article>
+</div>
+<!-- Client preview -->
+<article class="card" style="margin-top:18px">
+<div class="card-h">
+<h2>🔎 Preview — Client Header Order</h2>
+<span class="meta">First 4 data records · <span id="clPreviewBadge"></span></span>
+</div>
+<div class="preview-note" id="clPreviewNote">After you paste the client header list and link fields, the resulting output is shown here.</div>
+<div class="table-wrap hidden" id="clPreviewWrap">
+<table id="clPreviewTable">
+<thead id="clPreviewHead"></thead>
+<tbody id="clPreviewBody"></tbody>
+</table>
+</div>
+</article>
+<!-- Client save -->
+<article class="card" style="margin-top:18px">
+<div class="card-h">
+<h2>💾 Save — Client Header Order</h2>
+<span class="meta" id="clSaveFormatInfo"></span>
+</div>
+<div class="warning-box" style="margin-top:0;margin-bottom:12px">
+          The saved file’s header row uses <b>the exact client header order above</b>, with the linked source field values placed in each position. Unmapped positions are written as empty values.
         </div>
-        <div class="preview-note" id="clPreviewNote">After you paste the client header list and link fields, the resulting output is shown here.</div>
-        <div class="table-wrap hidden" id="clPreviewWrap">
-          <table id="clPreviewTable">
-            <thead id="clPreviewHead"></thead>
-            <tbody id="clPreviewBody"></tbody>
-          </table>
-        </div>
-      </article>
-
-      <!-- Client save -->
-      <article class="card" style="margin-top:18px">
-        <div class="card-h">
-          <h2>💾 Save — Client Header Order</h2>
-          <span class="meta" id="clSaveFormatInfo"></span>
-        </div>
-        <div class="warning-box" style="margin-top:0;margin-bottom:12px">
-          The saved file&rsquo;s header row uses <b>the exact client header order above</b>, with the linked source field values placed in each position. Unmapped positions are written as empty values.
-        </div>
-        <div class="warning-box warn-blocked hidden" id="clUnclosedWarn">
-          <span>⛔ <b>Save blocked</b> — the source file ends with an unclosed text qualifier. The final record is incomplete, so saving would silently drop it. Fix the file end and reload.</span>
-        </div>
-        <div class="save-guard-note hidden" id="clMismatchOverride" title="Only tick this if the mixed column counts are intentional and you accept the resulting layout">
-          <input type="checkbox" id="clMismatchCbx">
-          <span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
-        </div>
-        <div class="save-guard-note hidden" id="clUnmappedOverride" title="Tick this ONLY if you intentionally want blank values written for the unmapped output columns. The header names are still emitted — only their data values are empty.">
-          <input type="checkbox" id="clUnmappedCbx">
-          <span id="clUnmappedGuardLabel">Allow save with unmapped client headers — those output columns will be written as EMPTY values.</span>
-        </div>
-        <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 validation report (transformation reconciliation, data loss, mapping snapshot). Report is shown after save; download it with the Report button.">
-          <input type="checkbox" id="clAuditCbx" checked>
-          <span>🛡️ Create audit report (SHA-256) after saving</span>
-        </label>
-        <div class="save-area" style="margin-top:0">
-          <div class="grow">
-            <label style="font-size:12px;color:var(--muted)">Output file name</label>
-            <input type="text" id="clOutName" value="client_mapped.dat" spellcheck="false">
-          </div>
-          <button class="btn-big" id="btnClSave">⬇ Download Client File</button>
-        </div>
-      </article>
-      </div><!-- /clGridArea -->
-    </div><!-- /clientArea -->
-
-    <!-- ============ Validator workspace (post-save re-read) ============ -->
-    <div id="validatorArea" class="hidden">
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-h">
-          <h2>✅ Validator — Saved-File Re-Read</h2>
-          <span class="meta">Original ↔ Output (컬럼 텍스트 비교, 예상 정제 허용)</span>
-        </div>
-        <p style="font-size:12.8px;color:var(--muted);line-height:1.7;margin-bottom:12px">
-          저장된 결과 파일을 <b>다시 읽어</b> 원본 데이터와 대조합니다. 바이트가 아니라 <b>파싱된 셀 텍스트</b>를 비교하며,
-          데이터 정제 목적의 예상 변환(EOL·리인용·서로게이트 U+FFFD·CP1252 '?'·EDML 0x14/0xFE→공백)은
-          <b>EXPECTED(정상 정제)</b>로 분류하여 손상(Fail)으로 취급하지 않습니다.
-          이 탭은 저장 루틴의 "메모리 내 변환 수" 보고서와 달리 <b>디스크에 실제 저장된 파일 재검증</b> 결과입니다.
+<div class="warning-box warn-blocked hidden" id="clUnclosedWarn">
+<span>⛔ <b>Save blocked</b> — the source file ends with an unclosed text qualifier. The final record is incomplete, so saving would silently drop it. Fix the file end and reload.</span>
+</div>
+<div class="save-guard-note hidden" id="clMismatchOverride" title="Only tick this if the mixed column counts are intentional and you accept the resulting layout">
+<input id="clMismatchCbx" type="checkbox"/>
+<span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
+</div>
+<div class="save-guard-note hidden" id="clUnmappedOverride" title="Tick this ONLY if you intentionally want blank values written for the unmapped output columns. The header names are still emitted — only their data values are empty.">
+<input id="clUnmappedCbx" type="checkbox"/>
+<span id="clUnmappedGuardLabel">Allow save with unmapped client headers — those output columns will be written as EMPTY values.</span>
+</div>
+<label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 transformation audit report (transformation reconciliation, data loss, mapping snapshot). Report is shown after save; download it with the Report button.">
+<input checked="" id="clAuditCbx" type="checkbox"/>
+<span>🛡️ Create transformation audit report (SHA-256) after saving</span>
+</label>
+<div class="save-area" style="margin-top:0">
+<div class="grow">
+<label style="font-size:12px;color:var(--muted)">Output file name</label>
+<input id="clOutName" spellcheck="false" type="text" value="client_mapped.dat"/>
+</div>
+<button class="btn-big" id="btnClSave">⬇ Download Client File</button>
+</div>
+</article>
+</div><!-- /clGridArea -->
+</div><!-- /clientArea -->
+<!-- ============ Validator workspace (post-save re-read) ============ -->
+<div class="hidden" id="validatorArea">
+<div class="card" style="margin-bottom:16px">
+<div class="card-h">
+<h2>✅ Validator — Saved-File Re-Read</h2>
+<span class="meta">Original ↔ Output (parsed-cell comparison with expected cleansing rules)</span>
+</div>
+<p style="font-size:12.8px;color:var(--muted);line-height:1.7;margin-bottom:12px">
+          The saved output is <b>read again</b> and compared with the original. The validator compares <b>parsed cell text</b>, not raw bytes.
+          Only EOL normalization is classified as <b>EXPECTED</b>. Destructive cleansing is treated as corruption.
+          This tab validates the <b>actual files selected from disk</b>.
         </p>
-        <div class="val-grid">
-          <div>
-            <div class="drop-zone-sm" id="valSrcZone" tabindex="0" role="button">
-              <span class="dz-ic">📄</span>
-              <div class="dz-big" id="valSrcTitle">Drop Original (원본) file</div>
-              <div class="dz-sub">format/encoding auto-detected &middot; first row = header</div>
-              <input type="file" id="valSrcInput" accept=".dat,.txt,.csv,.load,application/octet-stream" hidden>
-            </div>
-            <div class="val-file-tag" id="valSrcTag" style="margin-top:7px"></div>
-          </div>
-          <div>
-            <div class="drop-zone-sm" id="valOutZone" tabindex="0" role="button">
-              <span class="dz-ic">✅</span>
-              <div class="dz-big" id="valOutTitle">Drop Saved Output (결과) file</div>
-              <div class="dz-sub">생성된 납품/재정렬 파일을 놓으세요</div>
-              <input type="file" id="valOutInput" accept=".dat,.txt,.csv,.load,application/octet-stream" hidden>
-            </div>
-            <div class="val-file-tag" id="valOutTag" style="margin-top:7px"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-h">
-          <h2>2️⃣ Column Mapping — 원본 열 ↔ 결과 열</h2>
-          <span class="meta">이름이 바뀐(Rename) 열은 붙여넣기 필드맵 필수</span>
-        </div>
-        <p style="font-size:12.8px;color:var(--muted);margin-bottom:8px;line-height:1.7">
-          결과 헤더가 원본 헤더의 순열/부분집합이면 <b>✨ Auto-Match</b>로 자동 대응됩니다
-          (BEGDOC→Bates_Begin 같은 Rename 포함 시에는 아래 2-컬럼 필드맵을 붙여넣으세요:<br>
-          <b>왼쪽 = 원본 열 이름, 오른쪽 = 결과(납품) 열 이름</b> — Client Header Map 모드와 동일 형식).
+<div class="val-grid">
+<div>
+<div class="drop-zone-sm" id="valSrcZone" role="button" tabindex="0">
+<span class="dz-ic">📄</span>
+<div class="dz-big" id="valSrcTitle">Drop Original File</div>
+<div class="dz-sub">FE/DC4 only · UTF-8 or UTF-16 LE/BE · first row = header</div>
+<input accept=".dat,.txt,.load,application/octet-stream" hidden="" id="valSrcInput" type="file"/>
+</div>
+<div class="val-file-tag" id="valSrcTag" style="margin-top:7px"></div>
+</div>
+<div>
+<div class="drop-zone-sm" id="valOutZone" role="button" tabindex="0">
+<span class="dz-ic">✅</span>
+<div class="dz-big" id="valOutTitle">Drop Saved Output File</div>
+<div class="dz-sub">Drop the generated delivery or reordered file here.</div>
+<input accept=".dat,.txt,.load,application/octet-stream" hidden="" id="valOutInput" type="file"/>
+</div>
+<div class="val-file-tag" id="valOutTag" style="margin-top:7px"></div>
+</div>
+</div>
+</div>
+<div class="card" style="margin-bottom:16px">
+<div class="card-h">
+<h2>2️⃣ Column Mapping — Original Columns ↔ Output Columns</h2>
+<span class="meta">A pasted field map is required for renamed columns.</span>
+</div>
+<p style="font-size:12.8px;color:var(--muted);margin-bottom:8px;line-height:1.7">
+          If the output header is a reordered subset of the original header, <b>✨ Auto-Match</b> links matching names automatically.
+          For renamed columns such as BEGDOC → Bates_Begin, paste a two-column field map below:<br/>
+<b>left = original column name, right = output or delivery column name</b>.
         </p>
-        <textarea id="valMapText" spellcheck="false"
-          placeholder="Optional — 2-column map (원본 헤더 / 결과 헤더):&#10;BEGDOC&#9;Bates_Begin&#10;CUSTODIAN&#9;Custodian&#10;..."></textarea>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
-          <button class="btn" id="btnValMapParse">✔ Apply Pasted Map</button>
-          <button class="btn primary" id="btnValAutoMap">✨ Auto-Match Headers</button>
-          <button class="btn" id="btnValClearMap">Clear Map</button>
-          <span class="cl-sample" id="valMapPreview" style="margin-top:0"></span>
-          <span style="flex:1"></span>
-          <button class="btn-big" id="btnValidate">🚀 Validate Files</button>
-        </div>
-        <div class="val-mapping-sum hidden" id="valMappingSum"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-h">
-          <h2>3️⃣ Validation Result</h2>
-          <span class="badge ok" id="valStatusBadge">—</span>
-          <button class="btn" id="btnValDownload" disabled>⬇ Download Validation Report (.txt)</button>
-        </div>
-        <div class="val-sum-box hidden" id="valSumBox"></div>
-        <pre class="audit-pre" id="valReportPre" style="white-space:pre-wrap">Validator가 두 파일의 헤더와 각 행을 재대조하면 결과가 여기에 표시됩니다.</pre>
-      </div>
-    </div><!-- /validatorArea -->
-  </section>
-
-  <section class="card hidden" id="issuesCard">
-    <h2 style="font-size:15px">📌 Parsing Notes</h2>
-    <div id="issuesList" style="font-size:13px;margin-top:7px;color:var(--muted)"></div>
-  </section>
-
-  <p class="light-txt" style="font-size:12px;text-align:center;padding:4px 0 26px">
+<textarea id="valMapText" placeholder="Optional — 2-column map (original header / output header):
+BEGDOC	Bates_Begin
+CUSTODIAN	Custodian
+..." spellcheck="false"></textarea>
+<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
+<button class="btn" id="btnValMapParse">✔ Apply Pasted Map</button>
+<button class="btn primary" id="btnValAutoMap">✨ Auto-Match Headers</button>
+<button class="btn" id="btnValClearMap">Clear Map</button>
+<span class="cl-sample" id="valMapPreview" style="margin-top:0"></span>
+<span style="flex:1"></span>
+<button class="btn-big" id="btnValidate">🚀 Validate Files</button>
+</div>
+<div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
+<label for="valIdentityField" style="font-size:12.8px;font-weight:700">Required record identity</label>
+<select id="valIdentityField" style="min-width:280px;padding:8px;border:1px solid var(--line);border-radius:8px"><option value="">Select approved identity field</option></select>
+<span class="meta">Must be mapped to output. Blank/duplicate identity QC remains EDML responsibility.</span>
+</div><div class="val-mapping-sum hidden" id="valMappingSum"></div>
+<div class="warning-box hidden" id="valExpectedBlank"></div>
+</div>
+<div class="card">
+<div class="card-h">
+<h2>3️⃣ Validation Result</h2>
+<span class="badge ok" id="valStatusBadge">—</span>
+<button class="btn" disabled="" id="btnValDownload">⬇ Download Transformation Audit Report (.txt)</button>
+</div>
+<div class="val-sum-box hidden" id="valSumBox"></div>
+<pre class="audit-pre" id="valReportPre" style="white-space:pre-wrap">Validation results will appear here after both files are re-read and compared.</pre>
+</div>
+</div><!-- /validatorArea -->
+</section>
+<section class="card hidden" id="issuesCard">
+<h2 style="font-size:15px">📌 Parsing Notes</h2>
+<div id="issuesList" style="font-size:13px;margin-top:7px;color:var(--muted)"></div>
+</section>
+<p class="light-txt" style="font-size:12px;text-align:center;padding:4px 0 26px">
     eDiscovery load file tool — everything runs locally in your browser; no file is ever uploaded or transmitted.
   </p>
 </main>
-
 <!-- Validation report modal (shown after save when the audit checkbox is on) -->
 <div class="audit-overlay hidden" id="auditOverlay">
-  <div class="audit-card">
-    <div class="audit-head">
-      <b>🛡️ Validation Report</b>
-      <span class="badge ok" id="auditStatusBadge">PASS</span>
-      <button type="button" class="xa" id="auditCloseBtn" title="Close">✕</button>
-    </div>
-    <div class="audit-body"><pre class="audit-pre" id="auditPre"></pre></div>
-    <div class="audit-actions">
-      <button class="btn primary" id="auditDownloadBtn">⬇ Download Report (.txt)</button>
-      <button class="btn" id="auditCopyBtn">📋 Copy to Clipboard</button>
-      <button class="btn" id="auditCloseBtn2">Close</button>
-      <span class="note">The output file was already saved. The report download is optional.</span>
-    </div>
-  </div>
+<div class="audit-card">
+<div class="audit-head">
+<b>🛡️ Transformation Audit Report</b>
+<span class="badge ok" id="auditStatusBadge">PASS</span>
+<button class="xa" id="auditCloseBtn" title="Close" type="button">✕</button>
 </div>
-
+<div class="audit-body"><pre class="audit-pre" id="auditPre"></pre></div>
+<div class="audit-actions">
+<button class="btn primary" id="auditDownloadBtn">⬇ Download Report (.txt)</button>
+<button class="btn" id="auditCopyBtn">📋 Copy to Clipboard</button>
+<button class="btn" id="auditCloseBtn2">Close</button>
+<span class="note">The output file was already saved. The report download is optional.</span>
+</div>
+</div>
+</div>
 <div id="busy"><div class="busybox"><div class="spinner"></div><div><div id="busyTitle" style="font-weight:650;font-size:14px;margin-bottom:3px">Working…</div><div id="busyLabel"></div></div></div></div>
 <div class="toast" id="toast"></div>
-
 <script>
 'use strict';
+const TOOL_VERSION = '2.9.0';
+const TOOL_BUILD = '2026-09-04';
 /* =============================================================
    DAT Field Reorder — multi-format load file reorder/removal
    BIG-FILE STREAMING EDITION
@@ -810,10 +850,10 @@
                             (constant memory regardless of file size)
                • Fallback  → Blob chunk list → single download
 
-   Surrogate hygiene: lone (unpaired) UTF-16 surrogates found in
-   field values are replaced with U+FFFD on every write path, so an
-   output file can never carry the "lone leading surrogate" that
-   makes JSON APIs (e.g. DeepSeek) reject it.
+   Surrogate hygiene: fail-closed. A lone (unpaired) UTF-16 surrogate
+   in any selected field is detected by the save preflight and blocks
+   the save BEFORE any output bytes are written — it is never silently
+   replaced with U+FFFD.
    ============================================================= */
 
 /* ---------------- Small helpers ---------------- */
@@ -821,14 +861,15 @@ const FE = '\u00FE';        // 0xFE text qualifier
 const FE_DELIM = '\u0014';  // 0x14 (DC4) column delimiter — field boundary is FE 14 FE
 
 /* Per-save loss statistics (reset before every save pass).
-   feReplace* tracks feCompose rewriting embedded 0x14/0xFE as spaces;
+   FE/DC4 is fail-closed — structural 0x14/0xFE inside a field blocks the
+   save during preflight, so no "rewritten as spaces" counter is kept.
    cpLost* tracks CP1252 characters that cannot be represented and are
    written as '?'. currentRecordIdxForStats is the 1-based line index of
    the record currently being emitted so loss reports can point at the
    first affected line. */
-let saveStats = { feReplaceRecs:0, feReplaceChars:0, feReplaceFirst:null, cpLost:0, cpLostRecs:0, cpLostFirst:null };
+let saveStats = { cpLost:0, cpLostRecs:0, cpLostFirst:null };
 let currentRecordIdxForStats = 0;
-function resetSaveStats(){ saveStats = { feReplaceRecs:0, feReplaceChars:0, feReplaceFirst:null, cpLost:0, cpLostRecs:0, cpLostFirst:null }; }
+function resetSaveStats(){ saveStats = { cpLost:0, cpLostRecs:0, cpLostFirst:null }; }
 
 function countChar(s, c){
   let n=0;
@@ -840,82 +881,59 @@ function firstLineOf(text){
   return m ? m[0] : text;
 }
 
-/* Replace lone surrogates (no valid pair) with U+FFFD.
-   Lone high/low surrogate otherwise corrupts JSON.stringify and
-   makes strict server-side JSON parsers return 400. */
+/* Fail-closed surrogate scan: a lone (unpaired) UTF-16 surrogate has no
+   lossless byte representation. Throw instead of inventing U+FFFD data
+   (and let the save preflight find it before output starts), so a lone
+   surrogate can never silently enter a saved file. */
 function sanitizeScalarValue(s){
   if(s === null || s === undefined) return '';
   s = String(s);
-  let hasLone = false;
-  for(let i=0;i<s.length;i++){
-    const c = s.charCodeAt(i);
-    if(c >= 0xD800 && c <= 0xDFFF){
-      if(c <= 0xDBFF){
-        const n = s.charCodeAt(i+1);
-        if(!(n >= 0xDC00 && n <= 0xDFFF)){ hasLone = true; break; }
-        i++; // valid pair
-      } else if(c >= 0xDC00){
-        hasLone = true; break; // lone low surrogate (must be preceded by high)
-      }
-    }
-  }
-  if(!hasLone) return s;
-  let out = '';
   for(let i=0;i<s.length;i++){
     const c = s.charCodeAt(i);
     if(c >= 0xD800 && c <= 0xDBFF){
       const n = s.charCodeAt(i+1);
-      if(n >= 0xDC00 && n <= 0xDFFF){ out += s[i] + s[i+1]; i++; }
-      else out += '\uFFFD';
+      if(!(n >= 0xDC00 && n <= 0xDFFF)){
+        throw new Error(`Blocked lossless write: lone high surrogate at UTF-16 code-unit ${i+1}.`);
+      }
+      i++;
     } else if(c >= 0xDC00 && c <= 0xDFFF){
-      out += '\uFFFD';
-    } else {
-      out += s[i];
+      throw new Error(`Blocked lossless write: lone low surrogate at UTF-16 code-unit ${i+1}.`);
     }
   }
-  return out;
+  return s;
 }
 
 /* Format dialect field splitters / composers (raw-level parse is
    handled by RecordStreamer below; field-level parsing is shared
    with the ORIGINAL field semantics). */
 function feSplit(rec){
+  const cols = String(rec).split(FE_DELIM);
   const out = [];
-  // Proper EDML: 0x14 (DC4) column delimiter separates each þ…þ field.
-  // Split on 0x14 first, then unwrap the FE qualifier from each column.
-  if(rec.indexOf(FE_DELIM) >= 0){
-    const cols = rec.split(FE_DELIM);
-    for(let i=0;i<cols.length;i++){
-      let v = cols[i];
-      const n = v.length;
-      if(n >= 2 && v.charCodeAt(0) === 0xFE && v.charCodeAt(n-1) === 0xFE) v = v.slice(1, -1);
-      else if(n === 1 && v.charCodeAt(0) === 0xFE) v = '';  // lone þ = empty field
-      out.push(v);
+  for(let ci=0; ci<cols.length; ci++){
+    const col = cols[ci];
+    if(col.length < 2 || col[0] !== FE || col[col.length-1] !== FE){
+      throw new Error(`Malformed FE/DC4 record: column ${ci+1} is not fully enclosed by þ qualifiers.`);
     }
-    return out;
+    const inner = col.slice(1,-1);
+    let v = '';
+    for(let i=0;i<inner.length;i++){
+      if(inner[i] === FE){
+        if(inner[i+1] === FE){ v += FE; i++; }
+        else throw new Error(`Malformed FE/DC4 record: unescaped þ in column ${ci+1}.`);
+      } else if(inner[i] === FE_DELIM){
+        throw new Error(`Malformed FE/DC4 record: raw DC4 inside column ${ci+1}.`);
+      } else v += inner[i];
+    }
+    out.push(v);
   }
-  // Legacy fallback — files previously written without 0x14 (þaþþbþ):
-  // every FE…FE pair still represents exactly one field.
-  const parts = rec.split(FE);
-  for(let i=1;i<parts.length;i+=2) out.push(parts[i]);
   return out;
 }
 function feCompose(fields){
-  // EDML requires each field boundary to be FE 14 FE. A raw 0x14/0xFE inside
-  // a value would split/re-quote the record, so strip those control chars.
-  // Replacements are tallied (per save) so a post-save warning can report them.
-  const cleaned = [];
-  for(let i=0;i<fields.length;i++){
-    const v = String(fields[i]==null?'':fields[i]);
-    const bad = (v.match(/\u00FE|\u0014/g) || []).length;
-    if(bad > 0){
-      saveStats.feReplaceChars += bad;
-      saveStats.feReplaceRecs++;
-      if(saveStats.feReplaceFirst === null) saveStats.feReplaceFirst = currentRecordIdxForStats || 'header';
-    }
-    cleaned.push(v.replace(/\u00FE|\u0014/g,' '));
-  }
-  return cleaned.map(f => FE + f + FE).join(FE_DELIM);
+  return fields.map((value,ci)=>{
+    const v = sanitizeScalarValue(value==null?'':String(value));
+    if(v.includes(FE_DELIM)) throw new Error(`Cannot write FE/DC4: column ${ci+1} contains raw DC4 (U+0014), which has no escape representation.`);
+    return FE + v.replace(/\u00FE/g, FE+FE) + FE;
+  }).join(FE_DELIM);
 }
 
 function ccSplit(rec){
@@ -950,22 +968,32 @@ function ccCompose(fields){ return fields.map(f => '^' + escapeCaret(f) + '^').j
 function delimitedSplit(rec, delim){
   const out = [];
   let cur = '';
-  let inQ = false;
+  let state = 'START'; // START, UNQUOTED, QUOTED, AFTER_QUOTE
   const n = rec.length;
   for(let i=0;i<n;i++){
     const ch = rec[i];
-    if(inQ){
+    if(state === 'QUOTED'){
       if(ch === '"'){
         if(rec[i+1] === '"'){ cur += '"'; i++; }
-        else inQ = false;
+        else state = 'AFTER_QUOTE';
       } else cur += ch;
-    } else {
-      if(ch === '"') inQ = true;
-      else if(ch === delim){ out.push(cur); cur = ''; }
-      else if(ch === '\r' || ch === '\n'){ /* embedded newline outside quotes removed */ }
+    } else if(state === 'AFTER_QUOTE'){
+      if(ch === delim){ out.push(cur); cur=''; state='START'; }
+      else if(ch === '\r' || ch === '\n'){ /* logical record boundary is handled upstream */ }
+      else throw new Error(`Malformed delimited record: unexpected character after closing quote at position ${i+1}.`);
+    } else if(state === 'START'){
+      if(ch === '"') state = 'QUOTED';
+      else if(ch === delim){ out.push(cur); cur=''; }
+      else if(ch === '\r' || ch === '\n'){ /* logical record boundary is handled upstream */ }
+      else { cur += ch; state = 'UNQUOTED'; }
+    } else { // UNQUOTED
+      if(ch === '"') throw new Error(`Malformed delimited record: quote inside an unquoted field at position ${i+1}.`);
+      if(ch === delim){ out.push(cur); cur=''; state='START'; }
+      else if(ch === '\r' || ch === '\n'){ /* logical record boundary is handled upstream */ }
       else cur += ch;
     }
   }
+  if(state === 'QUOTED') throw new Error('Malformed delimited record: unclosed quoted field.');
   out.push(cur);
   return out;
 }
@@ -973,6 +1001,15 @@ function escapeCsvQuote(v){ return String(v).replace(/"/g, '""'); }
 function csvCompose(fields){ return fields.map(f => '"' + escapeCsvQuote(f) + '"').join(','); }
 function tabCompose(fields){ return fields.join('\t'); }
 function pipeCompose(fields){ return fields.join('|'); }
+function unsafeClientHeader(fmtKey, name){
+  const v = String(name == null ? '' : name);
+  if(/[\r\n]/.test(v)) return 'contains a line break';
+  if(fmtKey === 'tsv' && v.includes('\t')) return 'contains a tab delimiter';
+  if(fmtKey === 'pipe' && v.includes('|')) return 'contains a pipe delimiter';
+  if(fmtKey === 'fe' && /\u0014/.test(v)) return 'contains raw DC4 (U+0014), which cannot be escaped';
+  if(fmtKey === 'cc' && v.includes('^|^')) return 'contains the Concordance separator token';
+  return null;
+}
 function csvSplit(rec){ return delimitedSplit(rec, ','); }
 function tabSplit(rec){ return rec.split('\t'); }
 function pipeSplit(rec){ return rec.split('|'); }
@@ -989,7 +1026,7 @@ function pipeSplit(rec){ return rec.split('|'); }
 const MAX_RECORD_UNITS = 128 * 1024 * 1024;
 function recordTooLargeError(kind, recNum){
   return new Error((kind === 'quoted' ? 'A single quoted record' : 'A single data line') +
-    ` (record #${recNum}) exceeds the maximum supported size of ${(MAX_RECORD_UNITS/1024/1024).toFixed(0)}M characters.`);
+    ` (record #${recNum}) exceeds the safety limit of ${(MAX_RECORD_UNITS/1024/1024).toFixed(0)}M UTF-16 code units per logical record. This usually indicates inline extracted text, a missing EOL, or an unclosed qualifier. Split extracted text to external files or repair the load file; do not raise this limit without memory testing.`);
 }
 
 const FORMATS = {
@@ -1034,16 +1071,26 @@ class RecordStreamer {
     // CSV is the only quoted dialect that permits fully unquoted records;
     // FE/Concordance always wrap every field. Requiring the qualifier there
     // is harmless, but for CSV it silently drops any line with no quotes.
-    this.qRequired = fmtKey !== 'csv';
     this.open = false;
+    // Doubled CSV quotes can straddle chunks; defer an EOF quote until the next character.
+    this.pendingQuote = false;
     this.pending = '';
     this.recIdx = 0;
+    // A CR at the end of a decoded chunk may be followed by LF in the next chunk.
+    // Suppress only that LF so one CRLF never becomes two logical record breaks.
+    this.suppressLeadingLF = false;
+    this.csvState = 'START';
   }
   async _emit(rec){
     await this.onRecord(rec, this.recIdx++);
   }
   async push(text){
     if(!text) return;
+    if(this.suppressLeadingLF){
+      if(text[0] === '\n') text = text.slice(1);
+      this.suppressLeadingLF = false;
+      if(!text) return;
+    }
     if(this.q === null){
       await this._pushPlain(text);
     } else {
@@ -1063,8 +1110,11 @@ class RecordStreamer {
       const ch = b[i];
       if(ch === '\n' || ch === '\r'){
         const rec = b.slice(start, i);
-        if(rec.trim() !== '') await this._emit(rec);
-        if(ch === '\r' && b[i+1] === '\n') i++;
+        await this._emit(rec);
+        if(ch === '\r'){
+          if(b[i+1] === '\n') i++;
+          else if(i === n - 1) this.suppressLeadingLF = true;
+        }
         i++;
         start = i;
         if(b.length - start > MAX_RECORD_UNITS){
@@ -1075,6 +1125,7 @@ class RecordStreamer {
     this.pending = b.slice(start);
   }
   async _pushQuoted(text){
+    if(this.fmtKey === 'csv') return this._pushCsv(text);
     // `pending` is the tail of an unterminated record, and `this.open` already
     // reflects the quote state at its end. Never re-scan that prefix: doing so
     // under that stale `open` state toggles qualifiers twice and corrupts every
@@ -1084,14 +1135,22 @@ class RecordStreamer {
     let b = this.pending + text;
     const q = this.q;
     const skip = this.skip;
-    let open = this.open; // quote state after `this.pending`
-    let start = 0;        // absolute start of the unterminated record in b
-    let i = prefix;       // already-scanned prefix is skipped
+    let open = this.open; // state after resolved characters in `this.pending`
+    let start = 0;
+    let i = prefix;
     const n = b.length;
+    if(this.pendingQuote){
+      if(skip && i < n && b[i] === q) i++; // escaped quote crossing a chunk
+      else open = !open;                     // structural quote at prior chunk end
+      this.pendingQuote = false;
+    }
     while(i < n){
       const ch = b[i];
       if(ch === q){
-        if(skip && ch === '"' && b[i+1] === '"'){ i += 2; continue; }
+        if(skip){
+          if(i + 1 < n && b[i+1] === '"'){ i += 2; continue; }
+          if(i + 1 === n){ this.pendingQuote = true; i++; continue; }
+        }
         open = !open;
         i++;
         continue;
@@ -1100,8 +1159,11 @@ class RecordStreamer {
         const rec = b.slice(start, i);
         // Unquoted CSV rows are valid records — only FE/Concordance demand a
         // qualifier before a line may be treated as a record.
-        if(rec.trim() !== '' && (!this.qRequired || rec.indexOf(q) >= 0)) await this._emit(rec);
-        if(ch === '\r' && b[i+1] === '\n') i++;
+        await this._emit(rec);
+        if(ch === '\r'){
+          if(b[i+1] === '\n') i++;
+          else if(i === n - 1) this.suppressLeadingLF = true;
+        }
         i++;
         start = i;
         if(b.length - start > MAX_RECORD_UNITS){
@@ -1115,20 +1177,69 @@ class RecordStreamer {
     this.pending = b.slice(start);
     this.open = open;
   }
+  async _pushCsv(text){
+    const prefix = this.pending.length;
+    let b = this.pending + text;
+    let state = this.csvState;
+    let start = 0;
+    let i = prefix;
+    const n = b.length;
+    if(this.pendingQuote){
+      if(i < n && b[i] === '"'){ i++; state = 'QUOTED'; }
+      else state = 'AFTER_QUOTE';
+      this.pendingQuote = false;
+    }
+    while(i < n){
+      const ch = b[i];
+      if(state === 'QUOTED'){
+        if(ch === '"'){
+          if(i + 1 < n && b[i+1] === '"'){ i += 2; continue; }
+          if(i + 1 === n){ this.pendingQuote = true; i++; continue; }
+          state = 'AFTER_QUOTE'; i++; continue;
+        }
+        i++; continue;
+      }
+      if(state === 'AFTER_QUOTE'){
+        if(ch === ','){ state='START'; i++; continue; }
+        if(ch !== '\r' && ch !== '\n') throw new Error(`Malformed CSV record ${this.recIdx+1}: unexpected character after closing quote.`);
+      } else if(state === 'START'){
+        if(ch === '"'){ state='QUOTED'; i++; continue; }
+        if(ch === ','){ i++; continue; }
+        if(ch !== '\r' && ch !== '\n'){ state='UNQUOTED'; i++; continue; }
+      } else { // UNQUOTED
+        if(ch === '"') throw new Error(`Malformed CSV record ${this.recIdx+1}: quote inside an unquoted field.`);
+        if(ch === ','){ state='START'; i++; continue; }
+        if(ch !== '\r' && ch !== '\n'){ i++; continue; }
+      }
+      // CR/LF outside a quoted field ends the logical record.
+      const rec = b.slice(start, i);
+      await this._emit(rec);
+      if(ch === '\r'){
+        if(b[i+1] === '\n') i++;
+        else if(i === n-1) this.suppressLeadingLF = true;
+      }
+      i++; start=i; state='START';
+    }
+    if(start === 0 && b.length > MAX_RECORD_UNITS) throw recordTooLargeError('csv', this.recIdx+1);
+    this.pending = b.slice(start);
+    this.csvState = state;
+    this.open = state === 'QUOTED';
+  }
   async flush(){
     const p = this.pending;
     if(!p) return null;
     this.pending = '';
     if(this.q === null){
-      if(p.trim() !== '') await this._emit(p);
+      if(p !== '') await this._emit(p);
       return null;
     }
+    if(this.pendingQuote){ this.open = !this.open; this.pendingQuote = false; }
     if(this.open){
       // Do NOT emit a trailing record whose text qualifier never closed.
       // Emitting it would silently merge/truncate fields at EOF.
       return { record: this.recIdx + 1 };
     }
-    if(p.trim() !== '' && (!this.qRequired || p.indexOf(this.q) >= 0)) await this._emit(p);
+    if(p !== '') await this._emit(p);
     return null;
   }
 }
@@ -1175,7 +1286,16 @@ async function sniffMeta(file){
       if(d[i] === 0) (i % 2 === 0 ? evenZeros++ : oddZeros++);
     }
     const eR = evenZeros / n, oR = oddZeros / n;
-    if(eR > .12 && oR < .01) kind = 'utf-16be';
+    let leMarkers=0, beMarkers=0;
+    for(let i=0;i+1<n;i+=2){
+      if((d[i]===0xFE || d[i]===0x14) && d[i+1]===0x00) leMarkers++;
+      if(d[i]===0x00 && (d[i+1]===0xFE || d[i+1]===0x14)) beMarkers++;
+    }
+    // FE/DC4 structural bytes provide a stronger signal than NUL ratios for
+    // Unicode-heavy BOM-less DAT files.
+    if(leMarkers >= 2 && beMarkers === 0) kind = 'utf-16le';
+    else if(beMarkers >= 2 && leMarkers === 0) kind = 'utf-16be';
+    else if(eR > .12 && oR < .01) kind = 'utf-16be';
     else if(oR > .12 && eR < .01) kind = 'utf-16le';
   }
 
@@ -1189,17 +1309,14 @@ async function sniffMeta(file){
     kind = 'utf-8'; effectiveKind = 'utf-8'; bomBytes = (bomBytes===3?3:0);
   }
 
-  // Windows-1252 fallback when a BOM-less UTF-8 decode is full of U+FFFD
+  // Strict BOM-less UTF-8 validation. A single malformed sequence is material:
+  // replacement decoding would silently turn source bytes into U+FFFD.
   if(effectiveKind === 'utf-8' && !hasBOM){
-    let bad = 0;
-    const lim = Math.min(sampleText.length, 200000);
-    for(let i=0;i<lim;i++){ if(sampleText.charCodeAt(i) === 0xFFFD) bad++; }
-    if(bad > 0){
-      const cp = new TextDecoder('windows-1252').decode(d.slice(bomBytes));
-      if(cp.length && bad/lim > (1/80)){
-        sampleText = cp;
-        kind = 'cp1252';
-      }
+    try {
+      new TextDecoder('utf-8', { fatal:true }).decode(d.slice(bomBytes));
+    } catch(err) {
+      sampleText = new TextDecoder('windows-1252').decode(d.slice(bomBytes));
+      kind = 'cp1252';
     }
   }
 
@@ -1217,33 +1334,34 @@ function decoderNameFor(kind){
    and keeps UTF-16 chunk inputs even by carrying one byte. */
 function createStreamDecoder(meta){
   const name = decoderNameFor(meta.kind);
-  const dec = new TextDecoder(name);
-  let carry = null; // single odd byte carried for UTF-16 alignment
+  // Fatal UTF-8 prevents late-file malformed byte sequences from silently
+  // becoming U+FFFD after a clean sniff sample.
+  const dec = new TextDecoder(name, meta.kind === 'utf-8' ? { fatal:true } : undefined);
+  let carry = null;
   const isUtf16 = meta.kind === 'utf-16le' || meta.kind === 'utf-16be';
   return {
     decode(bytes){
       let fed = bytes;
-      if(isUtf16 && bytes.length % 2 === 1){
-        // keep the odd trailing byte until the next chunk arrives
-        fed = bytes.subarray(0, bytes.length - 1);
-        carry = bytes[bytes.length - 1];
+      if(isUtf16 && carry !== null){
+        const merged = new Uint8Array(bytes.length + 1);
+        merged[0] = carry; merged.set(bytes, 1);
+        fed = merged; carry = null;
       }
-      return dec.decode(fed, { stream: true });
+      if(isUtf16 && fed.length % 2 === 1){
+        carry = fed[fed.length - 1];
+        fed = fed.subarray(0, fed.length - 1);
+      }
+      return dec.decode(fed, { stream:true });
     },
     finish(){
-      let out = '';
-      let truncatedTail = false;
       if(carry !== null){
-        // A broken odd tail cannot form a whole UTF-16 unit — TextDecoder
-        // emits the replacement character for it. Report it instead of
-        // silently swallowing the malformed tail.
-        out += dec.decode(Uint8Array.of(carry), { stream: false });
         carry = null;
-        truncatedTail = true;
-      } else {
-        out += dec.decode();
+        // Do not manufacture a replacement character. Report malformed UTF-16
+        // and let save/validation guards stop the workflow.
+        dec.decode();
+        return { text:'', truncatedTail:true };
       }
-      return { text: out, truncatedTail };
+      return { text:dec.decode(), truncatedTail:false };
     }
   };
 }
@@ -1254,18 +1372,20 @@ function createStreamDecoder(meta){
 function encodeCp1252Chunk(text, stats){
   const bytes = [];
   let lostHere = false;
-  for(let i=0;i<text.length;i++){
-    const cp = text.charCodeAt(i);
+  // Iterate Unicode code points, not UTF-16 code units. One unsupported scalar
+  // becomes exactly one '?', matching preflight and validator expectations.
+  for(const ch of String(text)){
+    const cp = ch.codePointAt(0);
     if(cp <= 0x7F) bytes.push(cp);
-    else if(cp <= 0xFF) bytes.push(cp);
-    else if(CP1252_MAP[text[i]] !== undefined) bytes.push(CP1252_MAP[text[i]]);
+    else if(cp >= 0xA0 && cp <= 0xFF) bytes.push(cp);
+    else if(CP1252_MAP[ch] !== undefined) bytes.push(CP1252_MAP[ch]);
     else {
       bytes.push(0x3F);
       lostHere = true;
       if(stats){
         stats.cpLost++;
         if(stats.cpLostFirst === null && currentRecordIdxForStats > 0) stats.cpLostFirst = currentRecordIdxForStats;
-        if(stats.cpLostFirst === null) stats.cpLostFirst = 1; // record #0 = header
+        if(stats.cpLostFirst === null) stats.cpLostFirst = 1;
       }
     }
   }
@@ -1305,14 +1425,19 @@ function metaBomBytes(meta){
 /* =============================================================
    EOL detection from raw decoded text
    ============================================================= */
+function eolInfoFromCounts(crlf, lfOnly, crOnly){
+  const kinds = [crlf>0, lfOnly>0, crOnly>0].filter(Boolean).length;
+  if(kinds > 1) return { eol:null, label:`Mixed EOL (CRLF ${crlf}, LF ${lfOnly}, CR ${crOnly})`, mixed:true, counts:{crlf,lfOnly,crOnly} };
+  if(crlf > 0) return {eol:'\r\n', label:'CRLF (Windows)', mixed:false, counts:{crlf,lfOnly,crOnly}};
+  if(lfOnly > 0) return {eol:'\n', label:'LF (Unix)', mixed:false, counts:{crlf,lfOnly,crOnly}};
+  if(crOnly > 0) return {eol:'\r', label:'CR (Mac)', mixed:false, counts:{crlf,lfOnly,crOnly}};
+  return {eol:'\r\n', label:'No EOL detected (default CRLF)', mixed:false, counts:{crlf,lfOnly,crOnly}};
+}
 function detectEol(text){
   const crlf = (text.match(/\r\n/g) || []).length;
   const lfOnly = (text.match(/(?<!\r)\n/g) || []).length;
   const crOnly = (text.match(/\r(?!\n)/g) || []).length;
-  if(crlf > 0 && lfOnly === 0 && crOnly === 0) return {eol:'\r\n', label:'CRLF (Windows)'};
-  if(lfOnly > 0 && crlf === 0 && crOnly === 0) return {eol:'\n', label:'LF (Unix)'};
-  if(crOnly > 0 && crlf === 0 && lfOnly === 0) return {eol:'\r', label:'CR (Mac)'};
-  return {eol:'\r\n', label:'CRLF (Windows)'};
+  return eolInfoFromCounts(crlf, lfOnly, crOnly);
 }
 
 /* Format heuristic — same rules as before, driven by decoded sample */
@@ -1361,6 +1486,18 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   if(onRawChunk && meta.hasBOM && meta.bomBytes > 0) onRawChunk(metaBomBytes(meta));
   let offset = meta.bomBytes;
   let lastProgressPct = -1;
+  let eolCrlf = 0, eolLf = 0, eolCr = 0, eolPendingCr = false;
+  const countEols = (text) => {
+    for(let i=0;i<text.length;i++){
+      const ch=text[i];
+      if(eolPendingCr){
+        if(ch==='\n'){ eolCrlf++; eolPendingCr=false; continue; }
+        eolCr++; eolPendingCr=false;
+      }
+      if(ch==='\r') eolPendingCr=true;
+      else if(ch==='\n') eolLf++;
+    }
+  };
 
   while(offset < total){
     let end = Math.min(offset + CHUNK_BYTES, total);
@@ -1378,6 +1515,7 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
 
     if(onRawChunk) onRawChunk(bytes);  // audit: exact file bytes (BOM was fed above)
     const text = dec.decode(bytes);
+    countEols(text);
     await streamer.push(text);
 
     offset += bytes.length; // == end, plus one more when an extra byte was absorbed
@@ -1388,10 +1526,11 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
     }
   }
   const tail = dec.finish();
-  state.utf16TruncatedTail = tail.truncatedTail;
-  if(tail.text) await streamer.push(tail.text);
+  if(tail.text){ countEols(tail.text); await streamer.push(tail.text); }
+  if(eolPendingCr) eolCr++;
   const broken = await streamer.flush();
-  return { unclosedQualifier: broken ? broken.record : null };
+  return { unclosedQualifier: broken ? broken.record : null, utf16TruncatedTail: !!tail.truncatedTail,
+    eolInfo: eolInfoFromCounts(eolCrlf, eolLf, eolCr) };
 }
 
 /* =============================================================
@@ -1406,6 +1545,8 @@ const state = {
   manualFmt: '',
   eol: '\r\n',
   eolLabel: 'CRLF (Windows)',
+  mixedEol: false,
+  eolCounts: {crlf:0,lfOnly:0,crOnly:0},
   origHadTrailingEOL: true,
   headerNames: [],
   previews: [],          // first 4 data rows, raw record text
@@ -1434,17 +1575,24 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
   let headerRaw = null;
   let headerNames = null;
   let multiline = 0;
+  let parseErrors = 0;
+  let parseErrorFirst = null;
+  let parseErrorMessage = null;
 
   const handle = (rec) => {
     if(!headerDone){
       headerDone = true;
       headerRaw = rec;
-      const fields = FORMATS[fmtKey].split(rec).map(s => sanitizeScalarValue(s.trim()));
+      const fields = FORMATS[fmtKey].split(rec).map(s => sanitizeScalarValue(s));
       headerNames = fields;
       return;
     }
     let c = 0;
-    try { c = FORMATS[fmtKey].split(rec).length; } catch(e){ c = 0; }
+    try { c = FORMATS[fmtKey].split(rec).length; } catch(e){
+      parseErrors++;
+      if(parseErrorFirst === null){ parseErrorFirst = dataRecords + 1; parseErrorMessage = e && e.message ? e.message : String(e); }
+      c = 0;
+    }
     rowFieldCounts.set(c, (rowFieldCounts.get(c)||0) + 1);
     if(rec.indexOf('\n') >= 0 || rec.indexOf('\r') >= 0) multiline++;
     dataRecords++;
@@ -1458,8 +1606,12 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
   }
 
   const headerCount = headerNames.length;
-  let mismatched = 0;
-  rowFieldCounts.forEach((cnt,c)=>{ if(c !== headerCount) mismatched += cnt; });
+  let mismatched = 0, shortRows = 0, longRows = 0;
+  rowFieldCounts.forEach((cnt,c)=>{
+    if(c !== headerCount) mismatched += cnt;
+    if(c < headerCount) shortRows += cnt;
+    if(c > headerCount) longRows += cnt;
+  });
 
   return {
     headerRaw,
@@ -1468,8 +1620,15 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
     dataRecords,
     rowFieldCounts,
     multiline,
+    parseErrors,
+    parseErrorFirst,
+    parseErrorMessage,
     mismatched,
-    unclosedQualifier: scanResult ? scanResult.unclosedQualifier : null
+    shortRows,
+    longRows,
+    unclosedQualifier: scanResult ? scanResult.unclosedQualifier : null,
+    utf16TruncatedTail: scanResult ? !!scanResult.utf16TruncatedTail : false,
+    eolInfo: scanResult ? scanResult.eolInfo : detectEol('')
   };
 }
 
@@ -1537,11 +1696,19 @@ function fmtQualifierLabel(){
 function headerMismatchSummary(){
   const p = state.parseInfo;
   if(!p || !p.rowFieldCounts) return null;
-  const mainCnt = state.headerNames ? state.headerNames.length : 0;
-  if(p.mismatchedRows <= 0) return null;
-  const parts=[];
-  p.rowFieldCounts.forEach((cnt,c)=>{ if(c !== mainCnt) parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`); });
-  return { count: p.mismatchedRows, mainCnt, detail: parts.join(', ') };
+  const mainCnt = state.headerNames.length;
+  const parts = [];
+  let count = 0, shortRows = 0, longRows = 0;
+  p.rowFieldCounts.forEach((cnt,c)=>{
+    if(c !== mainCnt){
+      count += cnt;
+      parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`);
+      if(c < mainCnt) shortRows += cnt;
+      if(c > mainCnt) longRows += cnt;
+    }
+  });
+  if(!count) return null;
+  return { count, mainCnt, shortRows, longRows, detail: parts.join(', ') };
 }
 
 /* Returns info about a detected trailing unclosed qualifier, or null. */
@@ -1554,6 +1721,13 @@ function unclosedQualifierInfo(){
 
 /* Refresh the red "Save blocked" banners + override checkboxes on
    both Save cards to match the current parse state. */
+const cl = {
+  rows: [],        // {name (output header), hint (left col our-name when 2-col map), mapped: null|srcIdx}
+  sel: null,       // selected client row index
+  srcQ: '',
+  pastedName: ''
+};
+
 function updateSaveGuardUi(){
   const un = unclosedQualifierInfo();
   const reorderUnclosedBox = $('#reorderUnclosedWarn');
@@ -1595,40 +1769,39 @@ function updateSaveGuardUi(){
   }
 }
 
+/* Shared EOL/trailing-EOL probe used by both loadFile and the Format-Override
+   re-parse so the trailing-EOL state is always derived the same way. Decode
+   failures on the tail probe are deliberately ignored — it is advisory only. */
+async function probeFileEol(file, meta){
+  const headText = meta.sampleText;
+  const eolInfo = headText ? detectEol(headText.slice(0, 1 << 20)) : detectEol('');
+  let trailing = '';
+  const sz = file.size;
+  try {
+    if(sz > 0){
+      const tailStart = Math.max(0, meta.bomBytes, sz - 65536);
+      const tailBuf = new Uint8Array(await file.slice(tailStart, sz).arrayBuffer());
+      if(tailBuf.length){
+        trailing += new TextDecoder(decoderNameFor(meta.kind)).decode(tailBuf);
+      }
+    }
+  } catch(e){ /* ignore */ }
+  return { ...eolInfo, origHadTrailingEOL: /[\r\n]$/.test(trailing) };
+}
+
 /* Loader entry -------------------------------------------------- */
 async function loadFile(file){
   const token = ++loadToken;
   setBusy('Analyzing file…', 'Detecting encoding & format…');
   try{
     const meta = await sniffMeta(file);
+    if(meta.kind === 'cp1252') throw new Error('Windows-1252/CP1252 is blocked. Convert the source to UTF-8 or UTF-16 through an approved workflow, then reload it.');
     let fmtKey = (state.manualFmt && FORMATS[state.manualFmt]) ? state.manualFmt : detectFormat(meta.sampleText);
+    if(fmtKey !== 'fe') throw new Error('Blocked format. This release accepts FE/DC4 DAT only.');
     if(!FORMATS[fmtKey]) fmtKey = 'pipe';
 
     // detect EOL + trailing-EOL from a small prefix & suffix scan
-    let eolInfo = null;
-    const eolProbe = async () => {
-      const headText = meta.sampleText;
-      if(headText){
-        const d = detectEol(headText.slice(0, 1 << 20));
-        eolInfo = d;
-      } else {
-        eolInfo = detectEol('');
-      }
-      // trailing EOL — probe the last 64 KB
-      let trailing = '';
-      const sz = file.size;
-      try {
-        if(sz > 0){
-          const tailStart = Math.max(0, meta.bomBytes, sz - 65536);
-          const tailBuf = new Uint8Array(await file.slice(tailStart, sz).arrayBuffer());
-          if(tailBuf.length){
-            trailing += new TextDecoder(decoderNameFor(meta.kind)).decode(tailBuf);
-          }
-        }
-      } catch(e){ /* ignore */ }
-      return { ...eolInfo, origHadTrailingEOL: /[\r\n]$/.test(trailing) };
-    };
-    const eolProbeResult = await eolProbe();
+    const eolProbeResult = await probeFileEol(file, meta);
 
     // full streaming pass
     const parsed = await buildFileIndex(file, meta, fmtKey, ({pct}) => {
@@ -1649,8 +1822,11 @@ async function loadFile(file){
     state.sizeBytes = file.size;
     state.detected = meta;
     state.fmtKey = fmtKey;
-    state.eol = eolProbeResult.eol || '\r\n';
-    state.eolLabel = eolProbeResult.label || 'CRLF (Windows)';
+    const fullEol = parsed.eolInfo || eolProbeResult;
+    state.eol = fullEol.eol || '\r\n';
+    state.eolLabel = fullEol.label || 'CRLF (Windows)';
+    state.mixedEol = !!fullEol.mixed;
+    state.eolCounts = fullEol.counts || {crlf:0,lfOnly:0,crOnly:0};
     state.origHadTrailingEOL = eolProbeResult.origHadTrailingEOL;
     state.headerNames = parsed.headerNames;
     state.previews = parsed.previews;
@@ -1659,9 +1835,15 @@ async function loadFile(file){
       dataRecords: parsed.dataRecords,
       rowFieldCounts: parsed.rowFieldCounts,
       multiline: parsed.multiline,
-      mismatchedRows: parsed.mismatched
+      mismatchedRows: parsed.mismatched,
+      shortRows: parsed.shortRows || 0,
+      longRows: parsed.longRows || 0,
+      parseErrors: parsed.parseErrors || 0,
+      parseErrorFirst: parsed.parseErrorFirst || null,
+      parseErrorMessage: parsed.parseErrorMessage || null
     };
     state.unclosedQualifier = parsed.unclosedQualifier || null;
+    state.utf16TruncatedTail = !!parsed.utf16TruncatedTail;
     state.orderTarget = parsed.headerNames.map((_,i)=>i);
     state.selection = null;
 
@@ -1797,10 +1979,12 @@ function removeFieldAt(pos){
   toast(`Removed from output: ${name}`);
 }
 function moveTarget(from,to){
-  if(from === to) return;
+  if(from === to){ state.selection = to; return; }
   const arr = state.orderTarget;
+  if(from < 0 || from >= arr.length || to < 0 || to >= arr.length) return;
   const [item] = arr.splice(from,1);
   arr.splice(to,0,item);
+  state.selection = to;
 }
 function moveDelta(pos, delta){
   const to = Math.max(0, Math.min(state.orderTarget.length-1, pos+delta));
@@ -1982,7 +2166,7 @@ function showIssues(){
   const mainCnt = state.headerNames.length;
   const list = [];
   if(state.utf16TruncatedTail){
-    list.push('⚠️ This UTF-16 file ends with a broken odd byte (truncated code unit) — the last character was replaced with U+FFFD.');
+    list.push('⛔ This UTF-16 file ends with an incomplete code unit. Saving is blocked. Repair or regenerate the source file, then reload it.');
   }
   if(state.fmtKey && FORMATS[state.fmtKey].quote && state.unclosedQualifier){
     list.push(`🚫 The final record (record #${state.unclosedQualifier}) never closes its text qualifier (“${FORMATS[state.fmtKey].quote}”). Saving is blocked — fix the file end and reload.`);
@@ -1990,13 +2174,18 @@ function showIssues(){
   if(p.mismatchedRows > 0){
     const parts=[];
     p.rowFieldCounts.forEach((cnt,c)=>{ if(c !== mainCnt) parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`); });
-    list.push(`📏 ${p.mismatchedRows.toLocaleString()} row${p.mismatchedRows===1?'':'s'} differ from the header column count (${mainCnt}). Saving is blocked by default; you can override below. Extra fields are not appended to the output.`);
+    list.push(`📏 ${p.mismatchedRows.toLocaleString()} row${p.mismatchedRows===1?'':'s'} differ from the header column count (${mainCnt}). Short rows are blocked by default and require explicit override. Long rows are always blocked because extra cells would be discarded.`);
   }
+  const srcDup = duplicateNameList(state.headerNames);
+  if(srcDup.length) list.push('⚠️ Duplicate source headers detected: ' + srcDup.map(d=>`${d.name} (cols ${d.columns.join(', ')})`).join('; ') + '. Name-based auto-mapping is disabled for ambiguous duplicates.');
   if(p.dataRecords === 0) list.push('📄 Header row only — no data rows found.');
   if(p.multiline > 0){
     list.push(`🧵 ${p.multiline.toLocaleString()} record${p.multiline===1?'':'s'} contain embedded newlines in a quoted field (handled correctly).`);
   } else {
     list.push('🧵 No multiline fields detected.');
+  }
+  if(state.fmtKey === 'pipe' || state.fmtKey === 'tsv'){
+    list.push('⚠️ Plain Pipe/Tab limitation: one physical line must equal one record. Embedded line breaks and escaped delimiters are not supported and may be indistinguishable from real row boundaries.');
   }
   const card = $('#issuesCard');
   const ul = $('#issuesList');
@@ -2016,9 +2205,8 @@ function showIssues(){
 function buildSaveLossWarnings(){
   const w = saveStats;
   const out = [];
-  if(w.feReplaceChars > 0){
-    out.push(`✂️ ${w.feReplaceChars.toLocaleString()} embedded 0x14/0xFE chars in ${w.feReplaceRecs.toLocaleString()} record${w.feReplaceRecs===1?'':'s'} were rewritten as spaces (EDML structure protection). First at record #${w.feReplaceFirst===null?'header':w.feReplaceFirst}.`);
-  }
+  // EDML structural controls (0x14/0xFE) are fail-closed: the save preflight
+  // blocks the write, so there is no lossy 'rewritten as spaces' counter.
   if(w.cpLost > 0){
     out.push(`⚠️ ${w.cpLost.toLocaleString()} character${w.cpLost===1?'':'s'} cannot be represented in Windows-1252 and were written as '?'. First at record #${w.cpLostFirst===null?'header':w.cpLostFirst}.`);
   }
@@ -2034,6 +2222,117 @@ function showSaveWarnings(successToast){
   console.warn('DAT Field Reorder save warnings:\n' + extra.join('\n'));
 }
 
+/* Destructive/structural preflight. Runs before the file picker so no output is
+   created until the user explicitly accepts a detected risk. */
+let lastPreflightAcknowledgement = {
+  required: false, accepted: false, timestampUtc: null,
+  unsafeDelimiter: 0, edmlControl: 0, loneSurrogate: 0, cpLoss: 0
+};
+
+async function transformationPreflight(mode){
+  const fmt = fmtInfo();
+  const indices = mode === 'client' ? clMapArray() : state.orderTarget.slice();
+  const risk = { unsafeDelimiter:0, unsafeFirst:null, edmlControl:0, edmlFirst:null, loneSurrogate:0, loneSurrogateFirst:null, cpLoss:0, cpFirst:null };
+  let dataRow = 0;
+  await scanFile(state.file, state.detected, state.fmtKey, async (rec, idx)=>{
+    if(idx === 0) return;
+    dataRow++;
+    let fields;
+    try { fields = fmt.split(rec); } catch(e){
+      throw new Error(`Malformed FE/DC4 data record ${dataRow}: ${e && e.message ? e.message : String(e)}`);
+    }
+    for(const srcIdx of indices){
+      if(srcIdx === null || srcIdx >= fields.length) continue;
+      const v = String(fields[srcIdx] == null ? '' : fields[srcIdx]);
+      if((state.fmtKey === 'pipe' && /[|\r\n]/.test(v)) || (state.fmtKey === 'tsv' && /[\t\r\n]/.test(v))){
+        risk.unsafeDelimiter++; if(risk.unsafeFirst === null) risk.unsafeFirst = dataRow;
+      }
+      if(state.fmtKey === 'fe' && /\u0014/.test(v)){
+        risk.edmlControl++; if(risk.edmlFirst === null) risk.edmlFirst = dataRow;
+      }
+      // Lone (unpaired) UTF-16 surrogate has no lossless byte representation.
+      // Fail-closed: catch it here, BEFORE a save dialog / any output byte is
+      // created, instead of throwing mid-write after the sink was opened.
+      for(let ui=0; ui<v.length; ui++){
+        const cc = v.charCodeAt(ui);
+        if(cc >= 0xD800 && cc <= 0xDBFF){
+          const nn = v.charCodeAt(ui + 1);
+          if(!(nn >= 0xDC00 && nn <= 0xDFFF)){
+            risk.loneSurrogate++;
+            if(risk.loneSurrogateFirst === null) risk.loneSurrogateFirst = dataRow;
+          } else {
+            ui++;
+          }
+        } else if(cc >= 0xDC00 && cc <= 0xDFFF){
+          risk.loneSurrogate++;
+          if(risk.loneSurrogateFirst === null) risk.loneSurrogateFirst = dataRow;
+        }
+      }
+      if(state.detected.kind === 'cp1252'){
+        for(const ch of v){
+          const cp = ch.codePointAt(0);
+          if(!(cp <= 0xFF || CP1252_MAP[ch] !== undefined)){
+            risk.cpLoss++; if(risk.cpFirst === null) risk.cpFirst = dataRow;
+          }
+        }
+      }
+    }
+    if(dataRow % 10000 === 0) await new Promise(r=>setTimeout(r,0));
+  }, ({pct})=>setBusy('Safety preflight…', `${pct}% · ${dataRow.toLocaleString()} records checked`));
+  return risk;
+}
+function preflightMessage(r){
+  const lines=[];
+  if(r.unsafeDelimiter) lines.push(`${r.unsafeDelimiter} field value(s) contain the active Tab/Pipe delimiter or a newline (first data row ${r.unsafeFirst}).`);
+  if(r.edmlControl) lines.push(`${r.edmlControl} EDML field value(s) contain raw 0x14/DC4 and cannot survive FE/DC4 write (first data row ${r.edmlFirst}).`);
+  if(r.loneSurrogate) lines.push(`${r.loneSurrogate} field value(s) contain a lone (unpaired) UTF-16 surrogate that cannot be losslessly encoded (first data row ${r.loneSurrogateFirst}).`);
+  if(r.cpLoss) lines.push(`${r.cpLoss} character(s) are not representable in CP1252 and would become '?' (first data row ${r.cpFirst}).`);
+  return lines;
+}
+async function requireSafePreflight(mode){
+  setBusy('Safety preflight…', 'Checking selected values for structural or character loss risks…');
+  const risk = await transformationPreflight(mode);
+  clearBusy();
+  const lines = preflightMessage(risk);
+  lastPreflightAcknowledgement = {
+    required: lines.length > 0, accepted: false, timestampUtc: null,
+    unsafeDelimiter: risk.unsafeDelimiter, edmlControl: risk.edmlControl, loneSurrogate: risk.loneSurrogate, cpLoss: risk.cpLoss
+  };
+  if(state.mixedEol){
+    lastPreflightAcknowledgement.required = true;
+    lines.push('Mixed physical EOL markers were detected. Embedded extracted text may account for the mixture. Output record separators will be normalized to the selected output EOL; parsed values remain under validator comparison.');
+  }
+  const blankHeaders = (state.headerNames || []).map((h,i)=>String(h||'').trim()==='' ? i+1 : null).filter(Boolean);
+  if(blankHeaders.length){
+    alert(`SAVE BLOCKED — BLANK SOURCE HEADER\n\nBlank header position(s): ${blankHeaders.join(', ')}. Assign valid field names in the source before mapping.`);
+    return false;
+  }
+  // Structural loss conditions (delimiter/newline in plain formats, raw DC4 in
+  // FE/DC4, lone UTF-16 surrogate) have no lossless encoding — the output would
+  // change the record structure or invent replacement data, so they are
+  // fail-closed and can never be overridden.
+  if(risk.unsafeDelimiter || risk.edmlControl || risk.loneSurrogate){
+    const reasons=[];
+    if(risk.unsafeDelimiter) reasons.push(`${risk.unsafeDelimiter} selected value(s) contain the active Tab/Pipe delimiter or newline (first data row ${risk.unsafeFirst}).`);
+    if(risk.edmlControl) reasons.push(`${risk.edmlControl} selected FE/DC4 value(s) contain raw DC4 (0x14), which cannot be escaped (first data row ${risk.edmlFirst}).`);
+    if(risk.loneSurrogate) reasons.push(`${risk.loneSurrogate} selected value(s) contain a lone UTF-16 surrogate — no lossless encoding exists (first data row ${risk.loneSurrogateFirst}).`);
+    alert('SAVE BLOCKED — STRUCTURAL DATA RISK\n\n' + reasons.join('\n') + '\n\nCleanse or convert the source through an approved workflow. No output file was created.');
+    return false;
+  }
+  if(!lines.length) return true;
+  const accepted = confirm('SAVE RISK DETECTED\n\n' + lines.join('\n') + '\n\nCancel is recommended. Select OK only as an explicit override. The audit report will record this acknowledgement and any substitutions.');
+  if(accepted){
+    lastPreflightAcknowledgement.accepted = true;
+    lastPreflightAcknowledgement.timestampUtc = new Date().toISOString();
+  }
+  return accepted;
+}
+function safeOutputName(name, fallback){
+  const raw=String(name||'').trim() || fallback;
+  const cleaned=raw.replace(/[\\/:*?"<>|\u0000-\u001F]/g,'_').replace(/[. ]+$/g,'').slice(0,240);
+  return cleaned || fallback;
+}
+
 /* =============================================================
    Save — second streaming pass, constant memory
    ============================================================= */
@@ -2042,23 +2341,30 @@ function showSaveWarnings(successToast){
    handed to writeBytes — BOM and merged chunks alike — so an audit
    hash of the output never duplicates or misses data. */
 function createSink(onWrite){
+  let writeObserver = onWrite || null;
   const usesPicker = typeof window.showSaveFilePicker === 'function';
   let writable = null;
+  let fileHandle = null;
   let pickerError = null;
   const chunks = [];
   return {
     usesPicker,
+    setOnWrite(fn){ writeObserver = fn || null; },
     async begin(suggestedName){
       if(usesPicker){
         try{
-          const handle = await window.showSaveFilePicker({
+          fileHandle = await window.showSaveFilePicker({
             suggestedName,
+            // Prefer the user's Downloads folder instead of Documents.
+            // The browser/OS may still remember the last explicitly selected folder.
+            startIn: 'downloads',
             types: [{
               description: 'Load file',
-              accept: { 'application/octet-stream': ['.dat','.txt','.csv','.load'] }
+              accept: { 'application/octet-stream': ['.dat','.txt','.load'] }
             }]
           });
-          writable = await handle.createWritable();
+          // Only reserve the user-selected handle here. Do not create/truncate
+          // the destination until all asynchronous preflight checks pass.
           return 'stream';
         }catch(err){
           if(err && err.name === 'AbortError'){
@@ -2069,11 +2375,22 @@ function createSink(onWrite){
           pickerError = err && err.message ? err.message : String(err);
         }
       }
+      if(state.file && state.file.size > 512 * 1024 * 1024){
+        throw new Error('Blob fallback is blocked above 512 MiB. Use current Chrome/Edge with streaming file save.');
+      }
       return 'blob';
     },
     cancelReason(){ return pickerError; },
+    async open(){
+      if(fileHandle && !writable){
+        let selected = null;
+        try { selected = await fileHandle.getFile(); } catch(e){}
+        if(selected && state.file && selected.name === state.file.name) throw new Error('Saving over the loaded source filename is blocked. Choose a new output filename.');
+        writable = await fileHandle.createWritable();
+      }
+    },
     async writeBytes(bytes){
-      if(onWrite) onWrite(bytes);
+      if(writeObserver) writeObserver(bytes);
       if(writable){
         try {
           await writable.write(bytes);
@@ -2086,9 +2403,18 @@ function createSink(onWrite){
         chunks.push(bytes);
       }
     },
+    async abort(){
+      if(writable){ try { await writable.abort(); } catch(e){} writable = null; }
+      chunks.length = 0;
+    },
+    async getSavedFile(){
+      if(!fileHandle) return null;
+      try { return await fileHandle.getFile(); } catch(e){ return null; }
+    },
     async finish(downloadName){
       if(writable){
         await writable.close();
+        writable = null;
       } else {
         const blob = new Blob(chunks, { type:'application/octet-stream' });
         const url = URL.createObjectURL(blob);
@@ -2106,11 +2432,16 @@ function createSink(onWrite){
   };
 }
 
-async function saveFile(){
+async function saveFileCore(){
+  if(state.parseInfo && state.parseInfo.parseErrors){ toast(`❌ Save blocked: ${state.parseInfo.parseErrors} malformed FE/DC4 record(s).`); return; }
   if(!state.file){ toast('No file loaded.'); return; }
   if(state.orderTarget.length === 0){ toast('⚠️ The new field order is empty.'); return; }
 
   // ---- Save guards (hard stops before any file dialog) ----
+  if(state.utf16TruncatedTail){
+    toast('⛔ Save blocked — the UTF-16 source ends with an incomplete code unit. Repair or regenerate the source file, then reload it.');
+    return;
+  }
   const unclosed = unclosedQualifierInfo();
   if(unclosed){
     toast(`⛔ Save blocked — record #${unclosed.record} ends inside an open ${unclosed.label} text qualifier. Fix the file end and reload.`);
@@ -2118,24 +2449,33 @@ async function saveFile(){
     return;
   }
   const mm = headerMismatchSummary();
+  if(mm && mm.longRows > 0){
+    toast(`⛔ Save blocked — ${mm.longRows.toLocaleString()} long row(s) contain extra cells that would be discarded. Repair the source file before saving.`);
+    return;
+  }
   if(mm && !$('#reorderMismatchCbx').checked){
     toast(`⛔ Save blocked — ${mm.count.toLocaleString()} data row${mm.count===1?'':'s'} have a different column count than the header (${mm.mainCnt}). Tick the override above to save anyway.`);
     return;
   }
 
+  // Reserve a File System Access handle immediately while the click still has
+  // transient user activation. The file is not opened or modified until preflight passes.
+  const downloadName = safeOutputName($('#outName').value, 'reordered.dat');
+  $('#outName').value = downloadName;
+  const sink = createSink(null);
+  const mode = await sink.begin(downloadName);
+  if(mode === 'cancelled'){ toast('Save cancelled.'); return; }
+  const preflightAccepted = await requireSafePreflight('reorder');
+  if(!preflightAccepted){ toast('Save cancelled by safety preflight. No output file was created.'); return; }
   const fmt = fmtInfo();
   resetSaveStats();
-  const wantAudit = !!(typeof $ !== 'undefined' && $('#reorderAuditCbx') && $('#reorderAuditCbx').checked);
+  const wantAudit = SHA256_SELF_TEST_OK && !!(typeof $ !== 'undefined' && $('#reorderAuditCbx') && $('#reorderAuditCbx').checked);
   const inHasher  = wantAudit ? createSha256() : null;
   const outHasher = wantAudit ? createSha256() : null;
   let srcHash = null, outHash = null;
-  const downloadName = $('#outName').value.trim() || 'reordered.dat';
-  const sink = createSink(outHasher ? (b => outHasher.update(b)) : null);
-  const mode = await sink.begin(downloadName);
-  if(mode === 'cancelled'){
-    toast('Save cancelled.');
-    return;
-  }
+  // Attach output hashing after preflight, then open the reserved destination.
+  if(outHasher) sink.setOnWrite ? sink.setOnWrite(b => outHasher.update(b)) : null;
+  await sink.open();
   if(mode === 'blob'){
     if(state.file.size >= 1024 * 1024 * 1024 && !confirm('Save will accumulate the full output in browser memory.\n\nFor a file this large, use Chrome/Edge to stream straight to disk. Continue?')){
       toast('Save cancelled.');
@@ -2157,43 +2497,30 @@ async function saveFile(){
   // promises are collected and awaited via flushOut() before close(), which
   // makes failures surface and guarantees every buffered byte is on disk.
   const outQueue = [];
-  const pendingWrites = [];
   let outLen = 0;
-  const out = (bytes) => {
-    outQueue.push(bytes);
-    outLen += bytes.byteLength;
-    if(outLen >= FLUSH_BYTES){
-      const merged = new Uint8Array(outLen);
-      let p = 0;
-      for(const part of outQueue){ merged.set(part, p); p += part.byteLength; }
-      outQueue.length = 0;
-      outLen = 0;
-      pendingWrites.push(sink.writeBytes(merged));
-    }
-  };
   const flushOut = async () => {
-    if(outQueue.length > 0){
-      const merged = new Uint8Array(outLen);
-      let p = 0;
-      for(const part of outQueue){ merged.set(part, p); p += part.byteLength; }
-      outQueue.length = 0;
-      outLen = 0;
-      pendingWrites.push(sink.writeBytes(merged));
-    }
-    if(pendingWrites.length > 0){
-      await Promise.all(pendingWrites);
-      pendingWrites.length = 0;
-    }
+    if(outQueue.length === 0) return;
+    const merged = new Uint8Array(outLen);
+    let p = 0;
+    for(const part of outQueue){ merged.set(part, p); p += part.byteLength; }
+    outQueue.length = 0; outLen = 0;
+    await sink.writeBytes(merged); // ordered write + real backpressure
+  };
+  const out = async (bytes) => {
+    outQueue.push(bytes); outLen += bytes.byteLength;
+    if(outLen >= FLUSH_BYTES) await flushOut();
   };
 
-  const order = state.orderTarget;
+  const order = state.orderTarget.slice();
   // Extra fields beyond the header column count are NOT appended to the output:
   // silently attaching them at the end of a row could corrupt the column layout
   // the user actually specified. Rows with fewer fields than the header simply
   // leave the missing trailing columns empty.
   const reorderRecord = (rawRecord) => {
     let fields;
-    try { fields = fmt.split(rawRecord); } catch(e){ fields = []; }
+    try { fields = fmt.split(rawRecord); } catch(e){
+      throw new Error(`Malformed FE/DC4 record during write: ${e && e.message ? e.message : String(e)}`);
+    }
     const ordered = [];
     for(let k=0;k<order.length;k++){
       const origIdx = order[k];
@@ -2211,9 +2538,9 @@ async function saveFile(){
     // the source ended without one, one added by flushTrailingEol when it did.
     const eolBytes = textToBytes(state.detected, state.eol);
     let wroteAny = false;
-    const writeLine = (lineText) => {
-      if(wroteAny) out(eolBytes);
-      out(textToBytes(state.detected, lineText));
+    const writeLine = async (lineText) => {
+      if(wroteAny) await out(eolBytes);
+      await out(textToBytes(state.detected, lineText));
       wroteAny = true;
     };
     const flushTrailingEol = async () => {
@@ -2272,6 +2599,7 @@ async function saveFile(){
       }catch(e){ console.warn('Audit report not generated:', e); }
     }
   } catch(err){
+    if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
     console.error(err);
     toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
   } finally {
@@ -2285,13 +2613,6 @@ async function saveFile(){
    Each client header may link to one OUR field index (or empty);
    a single OUR field may feed several client headers at once (1:N).
    ============================================================= */
-
-const cl = {
-  rows: [],        // {name (output header), hint (left col our-name when 2-col map), mapped: null|srcIdx}
-  sel: null,       // selected client row index
-  srcQ: '',
-  pastedName: ''
-};
 
 const clPasteText = $('#clPasteText');
 const btnClParsePaste = $('#btnClParsePaste');
@@ -2317,6 +2638,23 @@ const clSaveFormatInfo = $('#clSaveFormatInfo');
 function normKey(s){
   return String(s).toLowerCase().replace(/[^a-z0-9\uAC00-\uD7A3]+/g,'').trim();
 }
+function duplicateNameList(names){
+  const seen = new Map();
+  (names || []).forEach((name, idx)=>{
+    const key = String(name);
+    if(!seen.has(key)) seen.set(key, []);
+    seen.get(key).push(idx);
+  });
+  return Array.from(seen.entries()).filter(([,idxs])=>idxs.length > 1)
+    .map(([name,idxs])=>({name, columns:idxs.map(i=>i+1)}));
+}
+function uniqueNormalizedIndex(names, candidate){
+  const key = normKey(candidate);
+  if(!key) return null;
+  const hits = [];
+  (names || []).forEach((name,i)=>{ if(normKey(name) === key) hits.push(i); });
+  return hits.length === 1 ? hits[0] : null;
+}
 
 /* Multi-cell fieldmap / header-list parser -------------------- */
 const FIELDMAP_HEADER_SIG = /(client\s*header|clientfield|client\s*field|our\s*field|ours\s*field|export\s*field|export|load\s*file\s*field|source\s*field|field\s*name|required\s*field|header\s*name)/i;
@@ -2325,8 +2663,10 @@ function cleanCell(c){ return sanitizeScalarValue(String(c==null?'':c)).trim(); 
 
 function parsePastedClientHeaders(text){
   if(!text || !String(text).trim()) return [];
-  const src = String(text).replace(/^\uFEFF/,'').trim();
-  const rawLines = src.split(/\r\n|\r|\n/).map(l=>l.trim()).filter(l=>l!=='');
+  // Preserve leading/trailing delimiter cells. Trimming the whole line first
+  // destroys an intentionally blank first Excel column (for example, "\tCLIENT_FIELD").
+  const src = String(text).replace(/^\uFEFF/,'');
+  const rawLines = src.split(/\r\n|\r|\n/).filter(l=>l.trim()!=='');
 
   const tabbed = rawLines.some(l => l.includes('\t'));
   const piped = !tabbed && rawLines.some(l => l.includes('|'));
@@ -2366,9 +2706,8 @@ function parsePastedClientHeaders(text){
   const LOOKS_2COL = rows.every(r => r.length >= 2);
   if(LOOKS_2COL){
     let start = 0;
-    if(rows[0].some(c => FIELDMAP_HEADER_SIG.test(c))){
-      start = 1;
-    }
+    const headerHits = rows[0].filter(c => FIELDMAP_HEADER_SIG.test(String(c).trim())).length;
+    if(rows[0].length >= 2 && headerHits >= 2) start = 1;
     if(start >= rows.length) return [];
     const out = [];
     rows.slice(start).forEach(r => {
@@ -2632,11 +2971,16 @@ function renderClPreview(){
 
 /* Client-map save — second streaming pass (mirrors saveFile
    but emits client header names and only mapped source values) */
-async function saveClientFile(){
+async function saveClientFileCore(){
+  if(state.parseInfo && state.parseInfo.parseErrors){ toast(`❌ Save blocked: ${state.parseInfo.parseErrors} malformed FE/DC4 record(s).`); return; }
   if(!state.file){ toast('No file loaded.'); return; }
   if(cl.rows.length === 0){ toast('⚠️ No client header list. Paste headers above and press Parse first.'); return; }
 
   // ---- Save guards (hard stops before any file dialog) ----
+  if(state.utf16TruncatedTail){
+    toast('⛔ Save blocked — the UTF-16 source ends with an incomplete code unit. Repair or regenerate the source file, then reload it.');
+    return;
+  }
   const unclosed = unclosedQualifierInfo();
   if(unclosed){
     toast(`⛔ Save blocked — record #${unclosed.record} ends inside an open ${unclosed.label} text qualifier. Fix the file end and reload.`);
@@ -2644,27 +2988,46 @@ async function saveClientFile(){
     return;
   }
   const mm = headerMismatchSummary();
+  if(mm && mm.longRows > 0){
+    toast(`⛔ Save blocked — ${mm.longRows.toLocaleString()} long row(s) contain extra cells that would be discarded. Repair the source file before saving.`);
+    return;
+  }
   if(mm && !$('#clMismatchCbx').checked){
     toast(`⛔ Save blocked — ${mm.count.toLocaleString()} data row${mm.count===1?'':'s'} have a different column count than the header (${mm.mainCnt}). Tick the override above to save anyway.`);
     return;
   }
-  const unmappedCount = cl.rows.filter(r=>r.mapped===null).length;
+  const rows = cl.rows.map(r => ({ name:r.name, mapped:r.mapped, blank:!!r.blank }));
+  const unmappedCount = rows.filter(r=>r.mapped===null).length;
   if(unmappedCount > 0 && !($('#clUnmappedCbx') && $('#clUnmappedCbx').checked)){
     toast(`⛔ Save blocked — ${unmappedCount} client header${unmappedCount===1?'':'s'} not yet mapped. Their output columns would be delivered EMPTY. Map ${unmappedCount===1?'it':'them'} on the left, or tick the override above to save with explicit blank values.`);
     updateSaveGuardUi();
     return;
   }
 
+  const unsafeHeaders = rows.map((r,i)=>({i,name:r.name,reason:unsafeClientHeader(state.fmtKey,r.name)})).filter(x=>x.reason);
+  if(unsafeHeaders.length){
+    const sample = unsafeHeaders.slice(0,3).map(x=>`#${x.i+1} "${x.name}" ${x.reason}`).join('; ');
+    toast(`⛔ Save blocked — ${unsafeHeaders.length} client header${unsafeHeaders.length===1?'':'s'} would break the ${FORMATS[state.fmtKey].label} schema. ${sample}`);
+    return;
+  }
+
+  // Reserve a File System Access handle immediately while transient user
+  // activation is available. The destination is untouched until preflight passes.
+  const downloadName = safeOutputName(clOutName.value, 'client_mapped.dat');
+  clOutName.value = downloadName;
+  const sink = createSink(null);
+  const mode = await sink.begin(downloadName);
+  if(mode === 'cancelled'){ toast('Save cancelled.'); return; }
+  const preflightAccepted = await requireSafePreflight('client');
+  if(!preflightAccepted){ toast('Save cancelled by safety preflight. No output file was created.'); return; }
   const fmt = fmtInfo();
   resetSaveStats();
-  const wantAudit = !!(typeof $ !== 'undefined' && $('#clAuditCbx') && $('#clAuditCbx').checked);
+  const wantAudit = SHA256_SELF_TEST_OK && !!(typeof $ !== 'undefined' && $('#clAuditCbx') && $('#clAuditCbx').checked);
   const inHasher  = wantAudit ? createSha256() : null;
   const outHasher = wantAudit ? createSha256() : null;
   let srcHash = null, outHash = null;
-  const downloadName = (clOutName.value.trim() || 'client_mapped.dat');
-  const sink = createSink(outHasher ? (b => outHasher.update(b)) : null);
-  const mode = await sink.begin(downloadName);
-  if(mode === 'cancelled'){ toast('Save cancelled.'); return; }
+  if(outHasher) sink.setOnWrite(b => outHasher.update(b));
+  await sink.open();
   if(mode === 'blob'){
     if(state.file.size >= 1024 * 1024 * 1024 && !confirm('Save will accumulate the full output in browser memory.\n\nFor a file this large, use Chrome/Edge to stream straight to disk. Continue?')){
       toast('Save cancelled.');
@@ -2676,19 +3039,25 @@ async function saveClientFile(){
   }
 
   const outQueue = [];
-  const pendingWrites = [];
   let outLen = 0;
-  const out = (bytes)=>{ outQueue.push(bytes); outLen += bytes.byteLength; if(outLen >= 1024*1024){
-    const merged = new Uint8Array(outLen); let p = 0;
-    for(const part of outQueue){ merged.set(part,p); p += part.byteLength; }
-    outQueue.length = 0; outLen = 0; pendingWrites.push(sink.writeBytes(merged));
-  }};
-  const flushOut = async ()=>{ if(outQueue.length){ const merged = new Uint8Array(outLen); let p=0; for(const part of outQueue){ merged.set(part,p); p+=part.byteLength; } outQueue.length=0; outLen=0; pendingWrites.push(sink.writeBytes(merged)); } if(pendingWrites.length){ await Promise.all(pendingWrites); pendingWrites.length=0; } };
+  const flushOut = async ()=>{
+    if(!outQueue.length) return;
+    const merged = new Uint8Array(outLen); let p=0;
+    for(const part of outQueue){ merged.set(part,p); p+=part.byteLength; }
+    outQueue.length=0; outLen=0;
+    await sink.writeBytes(merged);
+  };
+  const out = async (bytes)=>{
+    outQueue.push(bytes); outLen += bytes.byteLength;
+    if(outLen >= 1024*1024) await flushOut();
+  };
 
   const mapArr = clMapArray();
   const composeRow = (rawRecord) => {
     let fields;
-    try { fields = fmt.split(rawRecord); } catch(e){ fields = []; }
+    try { fields = fmt.split(rawRecord); } catch(e){
+      throw new Error(`Malformed FE/DC4 record during write: ${e && e.message ? e.message : String(e)}`);
+    }
     const vals = mapArr.map(srcIdx => (srcIdx !== null && srcIdx < fields.length) ? sanitizeScalarValue(fields[srcIdx]) : '');
     return fmt.compose(vals);
   };
@@ -2697,10 +3066,10 @@ async function saveClientFile(){
     await sink.writeBytes(metaBomBytes(state.detected));
     const eolBytes = textToBytes(state.detected, state.eol);
     let wroteAny = false;
-    const writeLine = (lineText)=> { if(wroteAny) out(eolBytes); out(textToBytes(state.detected, lineText)); wroteAny = true; };
-    const flushTrailingEol = async ()=>{ if(wroteAny && state.origHadTrailingEOL) out(eolBytes); await flushOut(); };
+    const writeLine = async (lineText)=> { if(wroteAny) await out(eolBytes); await out(textToBytes(state.detected, lineText)); wroteAny = true; };
+    const flushTrailingEol = async ()=>{ if(wroteAny && state.origHadTrailingEOL) await out(eolBytes); await flushOut(); };
 
-    const newHeader = cl.rows.map(r => sanitizeScalarValue(r.name));
+    const newHeader = rows.map(r => sanitizeScalarValue(r.name));
     currentRecordIdxForStats = 0; // record #0 = header
     await writeLine(fmt.compose(newHeader));
 
@@ -2739,6 +3108,7 @@ async function saveClientFile(){
       }catch(e){ console.warn('Audit report not generated:', e); }
     }
   } catch(err){
+    if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
     console.error(err);
     toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
   } finally {
@@ -2758,6 +3128,8 @@ function bindClientMode(){
     // we keep them but report.
     cl.rows = out;
     cl.sel = 0;
+    const clientDup = duplicateNameList(out.map(r=>r.name));
+    if(clientDup.length) toast('⚠️ Duplicate client headers retained: ' + clientDup.map(d=>d.name).join(', ') + '. Review mapping by column position.');
     clPastePreview.textContent = `${out.length} client header${out.length===1?'':'s'} parsed`;
     clPastePreview.title = out.map((r,ix)=>`${ix+1}. ${r.name}`).join('\n');
     clRenderAll();
@@ -2783,46 +3155,23 @@ function bindClientMode(){
 
   $('#btnClAutoGuess').addEventListener('click', ()=>{
     if(cl.rows.length === 0){ toast('Load client headers first (paste & Parse).'); return; }
-    const unnorm = (s)=> String(s).toLowerCase().replace(/[^a-z0-9\uAC00-\uD7A3]+/g,'');
     const srcNames = state.headerNames;
-    let matched = 0;
+    let matched = 0, ambiguous = 0;
     cl.rows.forEach(r=>{
       if(r.mapped !== null) return;
       const targets = [r.hint, r.name].filter(Boolean);
-      // 1) exact normalized match
       let hit = null;
       for(const t of targets){
-        const tk = unnorm(t);
-        if(!tk) continue;
-        for(let i=0;i<srcNames.length;i++){
-          if(unnorm(srcNames[i]) === tk){ hit = i; break; }
-        }
-        if(hit !== null) break;
+        const idx = uniqueNormalizedIndex(srcNames, t);
+        if(idx !== null){ hit = idx; break; }
+        const key = normKey(t);
+        if(key && srcNames.filter(n=>normKey(n)===key).length > 1) ambiguous++;
       }
-      if(hit === null){
-        // 2) token / substring containment (priority to shorter source; left col hint first)
-        for(const t of targets){
-          const tk = unnorm(t);
-          if(!tk || tk.length < 3) continue;
-          for(let i=0;i<srcNames.length;i++){
-            const sk = unnorm(srcNames[i]);
-            if(sk === tk){ hit = i; break; }
-            if(sk.length && (sk.includes(tk) || (sk.length >= 4 && tk.includes(sk)))){ hit = i; break; }
-          }
-          if(hit !== null) break;
-        }
-      }
-      if(hit !== null){
-        // 1:N reuse is allowed — don't steal this source from another header
-        // that already matched it; simply add the link on this row too.
-        r.mapped = hit;
-        matched++;
-      }
+      if(hit !== null){ r.mapped = hit; matched++; }
     });
     clRenderAll();
-    toast(`✨ Auto-match complete — ${matched} link${matched===1?'':'s'} created. Map any leftovers manually.`);
+    toast(`Auto-match complete — ${matched} exact normalized link${matched===1?'':'s'} created.${ambiguous ? ' Ambiguous names were left unmapped.' : ''}`);
   });
-
   const btn = (id,fn)=>{ const el=document.getElementById(id); if(el) el.addEventListener('click', fn); };
   btn('btnClMoveTop', ()=>{ if(cl.sel===null){ toast('Select a client header row first.'); return; } clMoveRow(cl.sel,0); });
   btn('btnClMoveUp', ()=>{ if(cl.sel===null){ toast('Select a client header row first.'); return; } clMoveRow(cl.sel, Math.max(0, cl.sel-1)); });
@@ -2836,6 +3185,8 @@ function bindClientMode(){
     tab.addEventListener('click', ()=>{
       const mode = tab.dataset.mode;
       switchClientMode(mode);
+      const target = mode === 'validator' ? $('#validatorArea') : $('#fileCard');
+      if(target) requestAnimationFrame(()=>target.scrollIntoView({behavior:'smooth', block:'start'}));
     });
   });
 }
@@ -2844,6 +3195,14 @@ function switchClientMode(mode){
   const isReorder = mode === 'reorder';
   const isClient = mode === 'client';
   const isValidator = mode === 'validator';
+  const sourceMode = isReorder || isClient;
+  document.body.dataset.workflowMode = mode;
+  $('#modeChoiceCard').classList.add('mode-chosen');
+  $('#guide').classList.toggle('hidden', !sourceMode);
+  $('#fileCard').classList.toggle('hidden', !sourceMode);
+  // Validator has its own two-file inputs and opens immediately.
+  // Reorder and Client Header Map open their workspace after a source file is loaded.
+  $('#workspace').classList.toggle('hidden', sourceMode && !state.file);
   $('#reorderArea').classList.toggle('hidden', !isReorder);
   $('#clientArea').classList.toggle('hidden', !isClient);
   $('#validatorArea').classList.toggle('hidden', !isValidator);
@@ -2856,6 +3215,15 @@ function switchClientMode(mode){
   }
   if(isValidator && typeof valRenderMapping === 'function') valRenderMapping(3);
 }
+
+async function runSaveLocked(fn){
+  if(saveOperationActive){ toast('A save is already in progress.'); return; }
+  saveOperationActive = true;
+  try { return await fn(); }
+  finally { saveOperationActive = false; }
+}
+async function saveFile(){ return runSaveLocked(saveFileCore); }
+async function saveClientFile(){ return runSaveLocked(saveClientFileCore); }
 
 /* =============================================================
    Validator tab — post-save re-read comparison
@@ -2880,7 +3248,8 @@ const validator = {
   srcRecords: 0,
   outRecords: 0,
   mapping: null,     // array per OUTPUT column -> src col index or null(blank)
-  mappingSource: 'none' // 'auto' | 'pasted'
+  mappingSource: 'none', // 'auto' | 'pasted'
+  expectedBlank: new Set() // output column indexes explicitly approved as blank
 };
 
 const val = {
@@ -2899,10 +3268,14 @@ const val = {
   dlBtn: $('#btnValDownload')
 };
 let valReportText = '';
+let saveOperationActive = false;
+let validationOperationToken = 0;
+const validatorLoadToken = { src:0, out:0 };
 
 function valClearMappingSummary(){
   validator.mapping = null;
   validator.mappingSource = 'none';
+  validator.expectedBlank = new Set();
   val.mappingSum.classList.add('hidden');
   val.mappingSum.textContent = '';
   val.mapPreview.textContent = '';
@@ -2910,15 +3283,19 @@ function valClearMappingSummary(){
 
 async function valLoadSide(kind, file){
   if(!file) return;
+  const loadToken = ++validatorLoadToken[kind];
   setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', file.name);
   try{
     const meta = await sniffMeta(file);
     const fmtKey = detectFormat(meta.sampleText);
-    if(!FORMATS[fmtKey]) throw new Error('Unrecognized format.');
+    if(!['utf-8','utf-16le','utf-16be'].includes(meta.kind)) throw new Error('Blocked encoding. Only UTF-8, UTF-8 BOM, UTF-16 LE/BE are allowed.');
+    if(fmtKey !== 'fe') throw new Error('Blocked format. Validator accepts FE/DC4 DAT only.');
     const parsed = await buildFileIndex(file, meta, fmtKey, ({pct})=>{
       if(pct !== null) setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', `${file.name} ${pct}%`);
     });
     if(!parsed) throw new Error('No parseable header (first row is treated as the header).');
+    if(parsed.parseErrors) throw new Error(`Malformed FE/DC4 record(s): ${parsed.parseErrors}; first data record ${parsed.parseErrorFirst}: ${parsed.parseErrorMessage || 'parse error'}`);
+    if(loadToken !== validatorLoadToken[kind]) return;
     if(kind === 'src'){
       validator.src = file; validator.srcMeta = meta; validator.srcFmt = fmtKey;
       validator.srcHdr = parsed.headerNames; validator.srcInfo = parsed;
@@ -2926,6 +3303,7 @@ async function valLoadSide(kind, file){
       validator.out = file; validator.outMeta = meta; validator.outFmt = fmtKey;
       validator.outHdr = parsed.headerNames; validator.outInfo = parsed;
     }
+    if(kind === 'src') valRefreshIdentityOptions();
     const metaFmt = FORMATS[fmtKey];
     const zone = kind === 'src' ? val.srcZone : val.outZone;
     const title = kind === 'src' ? val.srcTitle : val.outTitle;
@@ -2949,6 +3327,7 @@ function valFileName(side){
 /* Convert pasted field map or auto names into OUTPUT-column→SRC index.
    Also expose the human readable mapping summary string. */
 function valBuildMapFromPairs(pairs){
+  validator.expectedBlank = new Set();
   if(!validator.srcHdr || !validator.outHdr){ toast('Load both files first.'); return false; }
   const srcIdxByName = new Map();
   validator.srcHdr.forEach((n,i)=> { if(!srcIdxByName.has(n)) srcIdxByName.set(n, []); srcIdxByName.get(n).push(i); });
@@ -2972,12 +3351,23 @@ function valBuildMapFromPairs(pairs){
 
   const map = [];
   const usedSrc = new Set();
+  // Consume pasted mappings by output-header occurrence, not Array.find().
+  // This keeps duplicate output headers positionally aligned instead of reusing
+  // the first pair for every duplicate occurrence.
+  const pairQueues = new Map();
+  if(pairs){
+    pairs.forEach(p=>{
+      if(!pairQueues.has(p.out)) pairQueues.set(p.out, []);
+      pairQueues.get(p.out).push(p);
+    });
+  }
   validator.outHdr.forEach((outName, outCol)=>{
     let srcName = null;
-    if(pairs && pairs.some(p => p.out === outName)){
-      const p = pairs.find(p=>p.out===outName);
+    const queue = pairs ? pairQueues.get(outName) : null;
+    if(queue && queue.length){
+      const p = queue.shift();
       srcName = p.src;
-    } else if(pairs && pairs.some(p=>p.out===outName)===false && srcIdxByName.has(outName) && srcIdxByName.get(outName).length===1){
+    } else if(pairs && (!queue || queue.length===0) && srcIdxByName.has(outName) && srcIdxByName.get(outName).length===1){
       srcName = outName;
     } else if(!pairs){
       // pure auto: treat same-named column as a candidate only when unique.
@@ -3020,7 +3410,7 @@ function valParsePastedMap(){
   if(!text || !String(text).trim()){ toast('Paste a 2-column map first.'); return; }
   // Reuse the existing fieldmap parser: result rows carry {name: picked-name, hint: left hint}.
   const parsed = parsePastedClientHeaders(text);
-  // Interpret: hint(left)=original name, name(right)=output(납품) name.
+  // Interpret: hint (left) = original name; name (right) = output or delivery name.
   const pairs = [];
   parsed.forEach(r=>{
     const srcN = r.hint || r.name;   // 2-col map: left col = our(orig)
@@ -3042,17 +3432,32 @@ function valParsePastedMap(){
   valRenderMapping(3);
 }
 
-function valRenderMapping(){
-  if(!validator.outHdr || !validator.mapping || validator.mapping.length !== validator.outHdr.length){
-    if(validator.outHdr && validator.srcHdr){
-      val.mappingSum.classList.remove('hidden');
-      val.mapPreview.textContent = 'Mapping needed — paste a 2-col map or press Auto-Match.';
-    }
-    return;
-  }
-  val.mapPreview.textContent = `${validator.mapping.length} output columns mapped (${validator.mapping.filter(x=>x!==null).length} linked, ${validator.mapping.filter(x=>x===null).length} blank)`;
+function valRenderMapping(mode){
+  if(!validator.mapping) return;
+  const linked = validator.mapping.filter(x=>x!==null).length;
+  const blank = validator.mapping.length-linked;
+  val.mapPreview.textContent = `${validator.mapping.length} output columns mapped (${linked} linked, ${blank} unresolved)`;
   val.mappingSum.classList.remove('hidden');
   val.mappingSum.textContent = valMappingSummaryText();
+  const box = document.getElementById('valExpectedBlank');
+  if(box){
+    box.innerHTML='';
+    const unresolved=[];
+    validator.mapping.forEach((si,oi)=>{ if(si===null) unresolved.push(oi); });
+    box.classList.toggle('hidden', unresolved.length===0);
+    if(unresolved.length){
+      const title=document.createElement('div');
+      title.innerHTML='<b>Unresolved output columns</b><br>Select Expected Blank only when the delivery specification intentionally requires an empty column. Validation is blocked otherwise.';
+      box.appendChild(title);
+      unresolved.forEach(oi=>{
+        const lab=document.createElement('label'); lab.style.cssText='display:block;margin-top:7px;cursor:pointer';
+        const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=validator.expectedBlank.has(oi); cb.style.marginRight='7px';
+        cb.addEventListener('change',()=>{ if(cb.checked) validator.expectedBlank.add(oi); else validator.expectedBlank.delete(oi); valRenderMapping(mode); });
+        lab.appendChild(cb); lab.appendChild(document.createTextNode(`Expected Blank: out[${oi+1}] ${validator.outHdr[oi]||'(empty header)'}`));
+        box.appendChild(lab);
+      });
+    }
+  }
 }
 
 /* ===== Validator comparison engine ===== */
@@ -3072,32 +3477,9 @@ const CP1252_TO_UNICODE = (()=>{
 })();
 
 function valExpectedTransformation(srcRaw, outCell){
-  // 1. Lone surrogate → U+FFFD
-  if(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(srcRaw)){
-    const clean = sanitizeScalarValue(srcRaw);
-    if(clean === outCell) return { kind:'surrogate→U+FFFD' };
-  }
-  // 2. EDML structure protection: embedded FE/0x14 inside value → space
-  if(/[\u00FE\u0014]/.test(srcRaw)){
-    let bad = false, cleaned = '';
-    for(const ch of srcRaw){ if(ch === FE || ch === FE_DELIM){ cleaned += ' '; bad = true; } else cleaned += ch; }
-    if(bad && cleaned === outCell) return { kind:'EDML 0x14/0xFE→space' };
-  }
-  // 3. Windows-1252 unrepresentable → '?' (one char at a time allowed)
-  if(validator.outMeta && validator.outMeta.kind === 'cp1252'){
-    let lostAny = false;
-    let enc = '';
-    for(const ch of srcRaw){
-      const cp = ch.codePointAt(0);
-      if(cp <= 0xFF && CP1252_MAP[ch] === undefined) { enc += ch; continue; }
-      if(CP1252_MAP[ch] !== undefined){ enc += ch; continue; }
-      enc += '?'; lostAny = true;
-    }
-    if(lostAny && enc === outCell) return { kind:'CP1252 unrepresentable→?' };
-  }
-  // 4. whitespace/EOL-only differences (CRLF/LF/CR collapsed, whitespace preserved)
-  const eolNorm = (s)=> String(s||'').replace(/\r\n|\r|\n/g,'\n');
-  if(eolNorm(srcRaw) === eolNorm(outCell) && srcRaw !== outCell) return { kind:'EOL normalization' };
+  // Destructive cleansing is never auto-approved. Only EOL representation may normalize.
+  const norm = (v)=> String(v == null ? '' : v).replace(/\r\n|\r|\n/g,'\n');
+  if(norm(srcRaw) === norm(outCell) && srcRaw !== outCell) return { kind:'EOL normalization' };
   return null;
 }
 
@@ -3159,16 +3541,35 @@ function valStreamPair(desc, onPair){
   });
 }
 
-function valSplitRow(fmtKey, raw){ try{ return FORMATS[fmtKey].split(String(raw=='undefined'?'':raw)); }catch(e){ return []; } }
+function valSplitRow(fmtKey, raw){ try{ return FORMATS[fmtKey].split(raw === undefined || raw === null ? '' : String(raw)); }catch(e){ return []; } }
 
-async function valRunValidate(){
+async function valRunValidateCore(validationToken){
+  const identitySelect = $('#valIdentityField');
+  const identityIdx = identitySelect && identitySelect.value !== '' ? Number(identitySelect.value) : -1;
+  if(identityIdx < 0) return toast('Select the approved record identity field before validation.');
+  if(!validator.mapping.some(si => si === identityIdx)) return toast('Identity field must be linked to an output column.');
   if(!validator.src || !validator.out){ toast('Both original and output files are required.'); return; }
   if(!validator.mapping || validator.mapping.length !== validator.outHdr.length){
     toast('Build a column mapping first — ✨ Auto-Match or paste the field map.');
     return;
   }
+  const unresolved = [];
+  validator.mapping.forEach((si,oi)=>{ if(si===null && !validator.expectedBlank.has(oi)) unresolved.push(oi); });
+  if(unresolved.length){
+    toast(`⛔ Validation blocked — ${unresolved.length} output column(s) are unmapped and not explicitly marked Expected Blank.`);
+    valRenderMapping(3);
+    return;
+  }
+  const invalidExpected = [...validator.expectedBlank].filter(oi=>validator.mapping[oi]!==null);
+  if(invalidExpected.length){ invalidExpected.forEach(oi=>validator.expectedBlank.delete(oi)); }
+  const fatalInputs = [];
+  if(validator.srcInfo && validator.srcInfo.unclosedQualifier) fatalInputs.push('original has an unclosed qualifier');
+  if(validator.outInfo && validator.outInfo.unclosedQualifier) fatalInputs.push('output has an unclosed qualifier');
+  if(validator.srcInfo && validator.srcInfo.utf16TruncatedTail) fatalInputs.push('original has a truncated UTF-16 tail');
+  if(validator.outInfo && validator.outInfo.utf16TruncatedTail) fatalInputs.push('output has a truncated UTF-16 tail');
+  if(fatalInputs.length){ toast('⛔ Validation blocked — ' + fatalInputs.join('; ') + '.'); return; }
   setBusy('Validating…', 'Reading original + output records (streaming). First row of each is the header, which is skipped for data comparison.');
-  const stat = { rows:0, ok:0, expected:0, mismatch:0, skipBlank:0, firstMis: [], srcExtra:0, outExtra:0 };
+  const stat = { rows:0, ok:0, identical:0, expected:0, expectedBlank:0, mismatch:0, skipBlank:0, firstMis: [], srcExtra:0, outExtra:0 };
 
   const srcFmt = FORMATS[validator.srcFmt];
   const outFmt = FORMATS[validator.outFmt];
@@ -3183,31 +3584,28 @@ async function valRunValidate(){
       b: { file: validator.out, meta: validator.outMeta, fmt: validator.outFmt }
     },
     async (recA, recB, rowIdx)=>{
+      if(validationToken !== validationOperationToken) throw new Error('Validation superseded by a newer run.');
       // streamPair calls with (null,null,null) at the very end; treat as flush marker.
       if(recA === null && recB === null && rowIdx === null) return;
       setBusy('Validating…', `row ${Math.max(stat.rows+1,1).toLocaleString()} · ${(validator.src && validator.src.size ? (validator.src.size/1048576).toFixed(1) : '?')} MB side`);
       stat.rows++;
       const cellsA = recA === null ? null : valSplitRow(validator.srcFmt, recA);
       const cellsB = recB === null ? null : valSplitRow(validator.outFmt, recB);
-      // Side a = original, side b = output. A record present only on the ORIGINAL
-      // means the OUTPUT is missing that row (srcExtra); a record present only on
-      // the OUTPUT means the output contains a row absent from the original (outExtra).
-      if(recA !== null && recB === null){ stat.srcExtra++; stat.mismatch++; if(stat.mismatch<=5 && !stat.firstMis.some(x=>x.row===rowIdx)) stat.firstMis.push({row:rowIdx, col:0, src: valEscapeForReport(recA), out:'<missing in output>'}); return; }
-      if(recB !== null && recA === null){ stat.outExtra++; stat.mismatch++; if(stat.mismatch<=5 && !stat.firstMis.some(x=>x.row===rowIdx)) stat.firstMis.push({row:rowIdx, col:0, src:'<missing in original>', out: valEscapeForReport(recB)}); return; }
+      if(recA !== null && recB === null){ stat.srcExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:stat.rows, col:0, src: valEscapeForReport(recA), out:'<missing output row>'}); return; }
+      if(recB !== null && recA === null){ stat.outExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:stat.rows, col:0, src:'<missing source row>', out: valEscapeForReport(recB)}); return; }
+      if(cellsA && validator.srcHdr && cellsA.length !== validator.srcHdr.length){ stat.srcExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:`<source schema: ${cellsA.length} cells; expected ${validator.srcHdr.length}>`,out:'<not compared>'}); return; }
+      if(cellsB && validator.outHdr && cellsB.length !== validator.outHdr.length){ stat.outExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:'<not compared>',out:`<output schema: ${cellsB.length} cells; expected ${validator.outHdr.length}>`}); return; }
 
       for(let oi = 0; oi < validator.mapping.length; oi++){
         const si = validator.mapping[oi];
         const srcRaw = si !== null && cellsA && si < cellsA.length ? cellsA[si] : '';
         const outRaw = cellsB && oi < cellsB.length ? cellsB[oi] : '';
         stat.ok++;
-        // Compare the RAW parsed values — never trim. Leading/trailing spaces in
-        // File Path / Extracted Text are meaningful data in eDiscovery; trimming
-        // would silently approve lost whitespace.
         const sv = String(srcRaw == null ? '' : srcRaw);
         const ov = String(outRaw == null ? '' : outRaw);
-        if(sv === ov){ continue; }
+        if(sv === ov){ stat.identical++; continue; }
         // unlinked output (blank expected) — if source non-empty because mapping missing it is a mapping issue; if both end empty equal continue already.
-        const exp = valExpectedTransformation(sv, ov);
+        const exp = valExpectedTransformation(String(srcRaw==null?'':srcRaw), String(outRaw==null?'':outRaw));
         if(exp){ stat.expected++; continue; }
         stat.mismatch++;
         if(stat.firstMis.length < 5){
@@ -3221,20 +3619,19 @@ async function valRunValidate(){
     }
   );
 
-  // Structural checks. NOTE: output having FEWER columns than the original is the
-  // normal result of a field-removal operation — it is reported but does NOT fail.
-  // Only REAL structure/data damage fails the run: cell mismatches, missing rows,
-  // or structural breakage (unclosed qualifier / truncated tail).
+  // Structural checks
   const srcRec = validator.srcInfo ? (validator.srcInfo.dataRecords||0) : stat.rows;
   const outRec = validator.outInfo ? (validator.outInfo.dataRecords||0) : stat.rows;
-  const recMatch = srcRec === outRec; // informational only; row-CELL checks below remain authoritative when equal
-  const recOk = recMatch && stat.mismatch === 0;
-  // Column-count matters only for data pairing; mapping already guarantees each
-  // output column maps to an original col (or blank). Fewer output columns is normal.
-  const headerCountMatch = validator.srcHdr.length === validator.outHdr.length;
-  const failed = stat.mismatch > 0 || srcRec !== outRec || !!srcSkip || !!outSkip;
-  const status = failed ? 'FAIL' : (stat.expected > 0 ? 'PASS (with expected transformations)' : 'PASS');
+  const recMatch = srcRec === outRec;
+  const headerCountMatch = validator.mapping.length === validator.outHdr.length;
+  const srcIndexedMismatch = !!(validator.srcInfo && validator.srcInfo.mismatched > 0);
+  const outIndexedMismatch = !!(validator.outInfo && validator.outInfo.mismatched > 0);
+  const truncated = !!(validator.srcInfo && validator.srcInfo.utf16TruncatedTail) || !!(validator.outInfo && validator.outInfo.utf16TruncatedTail);
+  const failed = stat.mismatch > 0 || srcRec !== outRec || !headerCountMatch || !!srcSkip || !!outSkip || truncated || srcIndexedMismatch || outIndexedMismatch;
+  const status = failed ? 'FAIL' : (stat.expected > 0 ? 'PARSED-VALUE PASS (with expected transformations)' : 'PARSED-VALUE PASS');
   valReportText = valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status });
+  valReportText += `\n== Mapping assurance ==\nMapping source    : ${validator.mappingSource}\nLinked columns   : ${validator.mapping.filter(x=>x!==null).length}\nIdentity field   : ${validator.srcHdr[identityIdx] || '(unnamed)'} (source column ${identityIdx+1})\nIdentity linked  : YES\nExpected blanks  : ${validator.expectedBlank.size}\nUnapproved blanks: 0\n`;
+  if(validator.expectedBlank.size) [...validator.expectedBlank].forEach(oi=>{ valReportText += `  out[${oi+1}] ${validator.outHdr[oi] || '(empty header)'}\n`; });
   valShowResult(status, stat, { srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip });
   toast('✅ Validation complete — ' + status + (stat.expected ? ` (${stat.expected} expected cleansing)` : ''));
   clearBusy();
@@ -3243,7 +3640,7 @@ async function valRunValidate(){
 function valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status }){
   const L = [];
   const A = (...x)=> L.push(x.filter(v=>v!==null&&v!==undefined&&v!=='').join(''));
-  A('DAT FIELD REORDER — POST-SAVE VALIDATOR (re-read of actual files)');
+  A('DAT FIELD REORDER — POST-SAVE PARSED-VALUE VALIDATOR (re-read of actual files)');
   A('==================================================================');
   A('Generated (UTC)  : ', new Date().toISOString());
   A('Original         : ', validator.src ? validator.src.name : '—', '  ', validator.src && validator.srcMeta ? validator.srcMeta.label + ' · ' + FORMATS[validator.srcFmt].label : '');
@@ -3256,34 +3653,38 @@ function valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, 
   A('Source data rows : ', (srcRec||0).toLocaleString());
   A('Output data rows : ', (outRec||0).toLocaleString());
   A('Record count     : ', recMatch ? 'MATCH' : 'MISMATCH ❌');
-  A('Header columns   : orig ', validator.srcHdr ? validator.srcHdr.length : '?', ' / out ', validator.outHdr ? validator.outHdr.length : '?', headerCountMatch ? ' (match)' : ' (mismatch ❌)');
+  A('Header columns   : orig ', validator.srcHdr ? validator.srcHdr.length : '?', ' / out ', validator.outHdr ? validator.outHdr.length : '?');
+  A('Output schema    : ', headerCountMatch ? 'MATCHES mapping length' : 'MISMATCH ❌');
+  A('Source row shape : ', validator.srcInfo && validator.srcInfo.mismatched ? validator.srcInfo.mismatched.toLocaleString() + ' mismatched row(s) ❌' : 'ALL ROWS MATCH HEADER');
+  A('Output row shape : ', validator.outInfo && validator.outInfo.mismatched ? validator.outInfo.mismatched.toLocaleString() + ' mismatched row(s) ❌' : 'ALL ROWS MATCH HEADER');
   if(srcSkip)  A('⚠ Original final record #', srcSkip, ' has an unclosed qualifier.');
   if(outSkip)  A('⚠ Output  final record #', outSkip, ' has an unclosed qualifier.');
   A('');
   A('== Cell-level comparison ==');
   A('Cells compared   : ', stat.ok.toLocaleString());
-  A('Identical        : ', (stat.ok - stat.mismatch - stat.expected).toLocaleString());
-  A('Expected cleanse : ', stat.expected.toLocaleString(), ' (surrogate→U+FFFD, CP1252→?, EDML 0x14/0xFE→space, EOL)');
+  A('Identical        : ', stat.identical.toLocaleString());
+  A('Accepted EOL-only normalization : ', stat.expected.toLocaleString(), ' (destructive cleansing is never auto-approved)');
   A('Mismatch         : ', stat.mismatch.toLocaleString());
   A('Extra src rows   : ', stat.srcExtra, ' / Extra out rows : ', stat.outExtra);
   A('');
   if(stat.firstMis.length){
     A('First mismatches (up to 5):');
     stat.firstMis.forEach(m=>{
-      A(`  row ${m.row}, col ${m.col}`, m.srcName?` [${m.srcName} → ${m.outName||m.outName===''?'(blank)':m.outName}]`: '');
+      A(`  row ${m.row}, col ${m.col}`, m.srcName ? ` [${m.srcName} → ${(m.outName === '' || m.outName == null) ? '(blank)' : m.outName}]` : '');
       A('    source  : ', m.src === '' ? '(empty)' : m.src);
       A('    output  : ', m.out === '' ? '(empty)' : m.out);
     });
     A('');
   }
   A('== Status         : ', status);
+  A('Scope limitation : Structural and mapped parsed-cell validation only; not forensic identity, chain of custody, or companion-file completeness.');
   return L.join('\n') + '\n';
 }
 
 function valShowResult(status, stat, extra){
   const badge = val.statusBadge;
   badge.textContent = status;
-  val.statusBadge.className = 'badge ' + (status.startsWith('PASS') ? 'ok' : 'red');
+  val.statusBadge.className = 'badge ' + (status.includes('PASS') ? 'ok' : 'red');
   val.reportPre.textContent = valReportText;
   const box = val.sumBox;
   box.classList.remove('hidden');
@@ -3296,7 +3697,7 @@ function valShowResult(status, stat, extra){
   };
   mk('Records', extra ? `${extra.srcRec.toLocaleString()} ↔ ${extra.outRec.toLocaleString()}` : '—');
   mk('Cells compared', stat.ok.toLocaleString());
-  mk('Identical', (stat.ok - stat.mismatch - Math.max(stat.expected,0)).toLocaleString());
+  mk('Identical', stat.identical.toLocaleString());
   mk('Expected cleanse', stat.expected.toLocaleString());
   mk('Mismatch', stat.mismatch.toLocaleString());
   val.dlBtn.disabled = false;
@@ -3314,6 +3715,36 @@ function wireValDrop(el, input, cb){
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
     if(f) cb(f);
   });
+}
+
+async function valRunValidate(){
+  const token = ++validationOperationToken;
+  try { await valRunValidateCore(token); }
+  catch(err){
+    console.error(err);
+    valReportText = `VALIDATION ERROR\n${err && err.message ? err.message : String(err)}\n`;
+    val.statusBadge.textContent = 'ERROR';
+    val.statusBadge.className = 'badge danger';
+    val.reportPre.textContent = valReportText;
+    val.dlBtn.disabled = false;
+    toast('Validation failed: ' + (err && err.message ? err.message : String(err)));
+  } finally {
+    if(token === validationOperationToken) clearBusy();
+  }
+}
+
+function valRefreshIdentityOptions(){
+  const sel = $('#valIdentityField');
+  if(!sel) return;
+  const old = sel.value;
+  sel.innerHTML = '';
+  const blank = document.createElement('option'); blank.value=''; blank.textContent='Select approved identity field'; sel.appendChild(blank);
+  (validator.srcHdr || []).forEach((name,i)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=`${i+1}. ${name || '(blank header)'}`; sel.appendChild(o); });
+  if([...sel.options].some(o=>o.value===old)) sel.value=old;
+  else {
+    const preferred = (validator.srcHdr || []).findIndex(n=>/^(control[ _-]?number|begdoc|docid|document[ _-]?id)$/i.test(String(n).trim()));
+    if(preferred >= 0) sel.value=String(preferred);
+  }
 }
 
 function bindValidator(){
@@ -3375,10 +3806,18 @@ function bindButtons(){
     state.manualFmt = fmtOverride.value;
     const newFmt = state.manualFmt && FORMATS[state.manualFmt] ? state.manualFmt : detectFormat(state.detected ? state.detected.sampleText : '');
     if(!FORMATS[newFmt]) return;
+    if(!state.file || !state.detected){
+      toast('⚠️ No file loaded. Load a FE/DC4 DAT first.');
+      return;
+    }
     loadToken++;
     setBusy('Re-parsing…', 'Reading file with the selected format…');
     try{
-      const parsed = await buildFileIndex(state.file, state.detected, newFmt, ({pct}) => {
+      const reMeta = state.detected;
+      // Parse + EOL/tail probe run to completion BEFORE any state is mutated,
+      // so a failure here can never leave the rendered UI inconsistent with
+      // half-updated (or stale-then-partially-new) state.
+      const parsed = await buildFileIndex(state.file, reMeta, newFmt, ({pct}) => {
         if(pct !== null) setBusy('Re-parsing…', `${pct}% scanned`);
       });
       if(!parsed){
@@ -3386,6 +3825,9 @@ function bindButtons(){
         clearBusy();
         return;
       }
+      const reparsedTail = await probeFileEol(state.file, reMeta);
+
+      // ---- atomic commit after every async step succeeded ----
       state.fmtKey = newFmt;
       state.headerNames = parsed.headerNames;
       state.previews = parsed.previews;
@@ -3394,9 +3836,20 @@ function bindButtons(){
         dataRecords: parsed.dataRecords,
         rowFieldCounts: parsed.rowFieldCounts,
         multiline: parsed.multiline,
-        mismatchedRows: parsed.mismatched
+        parseErrors: parsed.parseErrors || 0,
+        parseErrorFirst: parsed.parseErrorFirst || null,
+        parseErrorMessage: parsed.parseErrorMessage || null,
+        mismatchedRows: parsed.mismatched,
+        shortRows: parsed.shortRows || 0,
+        longRows: parsed.longRows || 0
       };
       state.unclosedQualifier = parsed.unclosedQualifier || null;
+      state.utf16TruncatedTail = !!parsed.utf16TruncatedTail;
+      state.eol = parsed.eolInfo.eol;
+      state.eolLabel = parsed.eolInfo.label;
+      state.mixedEol = !!parsed.eolInfo.mixed;
+      state.eolCounts = parsed.eolInfo.counts;
+      state.origHadTrailingEOL = !!reparsedTail.origHadTrailingEOL;
       state.orderTarget = parsed.headerNames.map((_,i)=>i);
       state.selection = null;
       fmtBadge.textContent = `${FORMATS[newFmt].label}  — ${FORMATS[newFmt].hint}${state.manualFmt ? ' (manual override)' : ''}`;
@@ -3442,6 +3895,9 @@ dropZone.addEventListener('drop', e=>{
 
 function openFileHandler(file){
   if(!file) return;
+  state.manualFmt = '';
+  const el = $('#fmtOverride');
+  if(el) el.value = '';
   loadFile(file);
 }
 
@@ -3464,7 +3920,7 @@ if(typeof window.showSaveFilePicker === 'function'){
 }
 
 /* =============================================================
-   Validation Report (audit) support — pure-JS incremental SHA-256
+   Transformation Audit Report (audit) support — pure-JS incremental SHA-256
    so multi-GB files never need full buffering. The report is built
    after a save from data already collected; download is manual.
    ============================================================= */
@@ -3593,7 +4049,7 @@ function showAuditModal(fileName, text, status){
   const badge = $('#auditStatusBadge');
   if(badge){
     badge.textContent = status;
-    badge.className = 'badge ' + (status === 'PASS' ? 'ok' : (status === 'WARN' ? 'warn-b' : 'red'));
+    badge.className = 'badge ' + (status.includes('WARN') ? 'warn-b' : (status.includes('FAILED') ? 'red' : 'ok'));
   }
   const pre = $('#auditPre');
   if(pre) pre.textContent = text;
@@ -3621,12 +4077,12 @@ function buildAuditReport(info){
   const fmt = FORMATS[state.fmtKey];
   const mm = headerMismatchSummary();
 
-  A('DAT FIELD REORDER — VALIDATION REPORT');
-  A('======================================');
+  A('DAT FIELD REORDER — TRANSFORMATION AUDIT REPORT');
+  A('================================================');
   A('Generated (UTC)  : ', now.toISOString());
   A('Operation        : ', info.mode === 'client' ? 'Client Header Map' : 'Reorder / Remove');
   A('Output file      : ', info.downloadName);
-  A('Tool             : DAT Field Reorder (streaming, 100% local)');
+  A('Tool             : DAT Field Reorder v', TOOL_VERSION, ' (build ', TOOL_BUILD, ', streaming, 100% local)');
   A('');
   A('== Input file ==');
   if(state.file) A('Name             : ', state.fileName);
@@ -3634,6 +4090,7 @@ function buildAuditReport(info){
   A('Detected format  : ', fmt ? fmt.label : state.fmtKey, ' (', fmt ? fmt.hint : '', ')');
   A('Encoding         : ', state.detected ? state.detected.label : '—');
   A('EOL              : ', state.eolLabel || '—');
+  if(state.eolCounts) A('EOL counts       : CRLF ', state.eolCounts.crlf, ' · LF ', state.eolCounts.lfOnly, ' · CR ', state.eolCounts.crOnly);
   A('BOM              : ', state.detected ? (state.detected.hasBOM ? 'present' : 'none') : '—');
   A('');
 
@@ -3646,6 +4103,16 @@ function buildAuditReport(info){
     mm ? ('  [' + mm.detail + ' → headers have ' + mm.mainCnt + ' cols]') : '  (all match header)');
   A('Multiline (quoted newline) records    : ', (p.multiline||0).toLocaleString());
   A('Column-count override used            : ', info.overrideUsed ? 'YES' : 'no');
+  const ack = lastPreflightAcknowledgement;
+  A('Lossy/structural preflight required    : ', ack.required ? 'YES' : 'no');
+  A('Preflight override accepted            : ', ack.required ? (ack.accepted ? 'YES' : 'NO') : 'not required');
+  if(ack.timestampUtc) A('Preflight acknowledgement UTC          : ', ack.timestampUtc);
+  if(ack.required){
+    A('Preflight findings                    : delimiter/newline=', ack.unsafeDelimiter,
+      ', EDML controls=', ack.edmlControl, ', lone surrogates=', ack.loneSurrogate,
+      ', CP1252 loss=', ack.cpLoss);
+  }
+  A('Mapping method                       : ', info.mode === 'client' ? 'manual / exact normalized auto-match' : 'source-column index plan');
   A('NOTE. Row counts above reflect the in-memory transformation loop ONLY.');
   A('They are NOT a re-read of the saved file, so file-system write errors /');
   A('truncated trailing EOL are not detected by the counter above.');
@@ -3653,11 +4120,8 @@ function buildAuditReport(info){
 
   A('== Data Loss Report ==');
   const w = saveStats;
-  if(w.feReplaceChars > 0){
-    A('EDML 0x14/0xFE rewritten to spaces : ', w.feReplaceChars.toLocaleString(),
-      ' chars across ', w.feReplaceRecs.toLocaleString(), ' records',
-      ' (first: ', w.feReplaceFirst === null ? 'header' : 'record #'+w.feReplaceFirst, ')');
-  }
+  // EDML structural controls are fail-closed: the save preflight blocks the
+  // write before any output bytes exist, so no 'rewritten' counter is kept.
   if(w.cpLost > 0){
     A('Windows-1252 \'?\' replacements       : ', w.cpLost.toLocaleString(),
       ' chars across ', saveStats.cpLostRecs != null ? saveStats.cpLostRecs.toLocaleString() : '?',
@@ -3665,10 +4129,11 @@ function buildAuditReport(info){
       ' (first: ', w.cpLostFirst === null ? 'header' : 'record #'+w.cpLostFirst, ')');
   }
   if(state.utf16TruncatedTail){
-    A('⚠️ Broken UTF-16 tail byte         : last odd byte was replaced with U+FFFD.');
+    A('WARN Broken UTF-16 tail byte         : last odd byte was replaced with U+FFFD.');
   }
-  const anyLoss = (w.feReplaceChars > 0) || (w.cpLost > 0) || !!state.utf16TruncatedTail;
-  A('Status           : ', anyLoss ? '⚠ WARN — see lines above' : '✅ No character/control substitution occurred');
+  const anyLoss = (w.cpLost > 0) || !!state.utf16TruncatedTail;
+  A('Transformation   : ', anyLoss ? 'COMPLETE WITH WARNINGS' : 'COMPLETE');
+  A('Validation       : NOT PERFORMED - actual saved file was not re-read');
   A('');
 
   A('== Checksums (SHA-256) ==');
@@ -3707,7 +4172,9 @@ function buildAuditReport(info){
     removed.forEach(o=>{ A('   - ', o.n, ' (source col ', (o.i+1), ')'); });
   }
 
-  const status = recOk && !anyLoss ? 'PASS' : (recOk ? 'WARN' : 'FAIL');
+  const status = recOk && !anyLoss ? 'TRANSFORMATION COMPLETE - NOT VALIDATED' : (recOk ? 'TRANSFORMATION COMPLETE - WARN - NOT VALIDATED' : 'TRANSFORMATION FAILED');
+  A('');
+  A('Validation scope : Parsed-value reconciliation only; this is not forensic identity or chain-of-custody proof.');
   return { text: L.join('\n') + '\n', status };
 }
 
@@ -3735,11 +4202,14 @@ function bindAuditModal(){
 
 bindAuditModal();
 
+let SHA256_SELF_TEST_OK = false;
+
 // SHA-256 self-test (FIPS 180-4 KAT: SHA-256("abc"))
 (function(){
   try{
     const h = createSha256().update(new TextEncoder().encode('abc')).hexDigest();
     if(h === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'){
+      SHA256_SELF_TEST_OK = true;
       console.info('DAT audit SHA-256 self-test OK');
     } else {
       console.warn('DAT audit SHA-256 self-test MISMATCH:', h);
@@ -3747,9 +4217,21 @@ bindAuditModal();
   }catch(e){
     console.warn('DAT audit SHA-256 self-test error:', e);
   }
+  if(!SHA256_SELF_TEST_OK){
+    ['reorderAuditCbx','clAuditCbx'].forEach(id=>{
+      const cb = document.getElementById(id);
+      if(cb){ cb.checked=false; cb.disabled=true; cb.title='Disabled: SHA-256 self-test failed.'; }
+    });
+    setTimeout(()=>toast('⛔ SHA-256 self-test failed. Transformation audit hashing is disabled.'),0);
+  }
 })();
 
-console.info('DAT Field Reorder — streaming edition. Supported: þ 0xFE, ^|^ Concordance, CSV, Tab, Pipe. All local.');
+console.info('DAT Field Reorder v' + TOOL_VERSION + ' — streaming edition. Supported: FE/DC4 DAT only. Concordance, TSV, Pipe, CSV and CP1252 are blocked. All local.');
+
+/* v2.9.0 lineage note: strict CSV state validation, full-file mixed-EOL detection and fail-closed save,
+   Unicode-scalar CP1252 replacement consistency, filename sanitization, blank-header save guard,
+   and explicit parsed-value validator scope. */
 </script>
+<!-- v2.9.0 FE/DC4 fail-closed hardening release -->
 </body>
 </html>

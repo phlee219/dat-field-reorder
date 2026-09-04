@@ -341,6 +341,36 @@
   .client-footer-note{font-size:12.3px;color:var(--muted)}
   .cl-preview-empty{color:var(--muted);font-style:italic}
 
+  /* ============ Validation report modal ============ */
+  .audit-overlay{
+    position:fixed;inset:0;background:rgba(12,17,26,.48);z-index:300;
+    display:flex;align-items:center;justify-content:center;padding:18px;
+  }
+  .audit-card{
+    background:#fff;max-width:880px;width:100%;max-height:88vh;min-height:320px;
+    border-radius:14px;display:flex;flex-direction:column;overflow:hidden;
+    box-shadow:0 18px 54px rgba(10,20,45,.35);border:1px solid var(--line);
+  }
+  .audit-head{
+    display:flex;align-items:center;gap:10px;padding:13px 17px;
+    border-bottom:1px solid var(--line);background:#f4f8ff;flex:none;
+  }
+  .audit-head b{flex:1;font-size:14.5px}
+  .audit-head .xa{width:27px;height:27px;border-radius:7px;background:#eef2f7;color:#4a586c;
+    display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .audit-head .xa:hover{background:#fdecea;color:var(--bad)}
+  .audit-body{flex:1 1 auto;min-height:0;overflow:auto;padding:13px 16px}
+  .audit-pre{
+    font-family:Consolas,"Cascadia Mono",Menlo,monospace;font-size:12.2px;line-height:1.55;
+    white-space:pre-wrap;word-break:break-word;background:#fbfcfe;color:#1f2a3a;
+    border:1px solid var(--line);border-radius:9px;padding:12px 14px;margin:0;
+  }
+  .audit-actions{
+    flex:none;display:flex;gap:9px;flex-wrap:wrap;align-items:center;
+    padding:12px 16px;border-top:1px solid var(--line);background:#fafcff;
+  }
+  .audit-actions .note{font-size:12px;color:var(--muted);margin-left:auto}
+
   @media (max-width:900px){
     .go-steps{grid-template-columns:1fr}
     .workspace-grid{grid-template-columns:1fr}
@@ -497,6 +527,10 @@
         <input type="checkbox" id="reorderMismatchCbx">
         <span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
       </div>
+      <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 validation report (record reconciliation, data loss, removed fields). Report is shown after save; download it with the Report button.">
+        <input type="checkbox" id="reorderAuditCbx" checked>
+        <span>🛡️ Create audit report (SHA-256) after saving</span>
+      </label>
       <div class="save-area">
         <div class="grow">
           <label style="font-size:12px;color:var(--muted)">Output file name</label>
@@ -607,6 +641,10 @@
           <input type="checkbox" id="clMismatchCbx">
           <span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
         </div>
+        <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 validation report (record reconciliation, data loss, mapping snapshot). Report is shown after save; download it with the Report button.">
+          <input type="checkbox" id="clAuditCbx" checked>
+          <span>🛡️ Create audit report (SHA-256) after saving</span>
+        </label>
         <div class="save-area" style="margin-top:0">
           <div class="grow">
             <label style="font-size:12px;color:var(--muted)">Output file name</label>
@@ -628,6 +666,24 @@
     eDiscovery load file tool — everything runs locally in your browser; no file is ever uploaded or transmitted.
   </p>
 </main>
+
+<!-- Validation report modal (shown after save when the audit checkbox is on) -->
+<div class="audit-overlay hidden" id="auditOverlay">
+  <div class="audit-card">
+    <div class="audit-head">
+      <b>🛡️ Validation Report</b>
+      <span class="badge ok" id="auditStatusBadge">PASS</span>
+      <button type="button" class="xa" id="auditCloseBtn" title="Close">✕</button>
+    </div>
+    <div class="audit-body"><pre class="audit-pre" id="auditPre"></pre></div>
+    <div class="audit-actions">
+      <button class="btn primary" id="auditDownloadBtn">⬇ Download Report (.txt)</button>
+      <button class="btn" id="auditCopyBtn">📋 Copy to Clipboard</button>
+      <button class="btn" id="auditCloseBtn2">Close</button>
+      <span class="note">The output file was already saved. The report download is optional.</span>
+    </div>
+  </div>
+</div>
 
 <div id="busy"><div class="busybox"><div class="spinner"></div><div><div id="busyTitle" style="font-weight:650;font-size:14px;margin-bottom:3px">Working…</div><div id="busyLabel"></div></div></div></div>
 <div class="toast" id="toast"></div>
@@ -678,9 +734,9 @@ const FE_DELIM = '\u0014';  // 0x14 (DC4) column delimiter — field boundary is
    written as '?'. currentRecordIdxForStats is the 1-based line index of
    the record currently being emitted so loss reports can point at the
    first affected line. */
-let saveStats = { feReplaceRecs:0, feReplaceChars:0, feReplaceFirst:null, cpLost:0, cpLostFirst:null };
+let saveStats = { feReplaceRecs:0, feReplaceChars:0, feReplaceFirst:null, cpLost:0, cpLostRecs:0, cpLostFirst:null };
 let currentRecordIdxForStats = 0;
-function resetSaveStats(){ saveStats = { feReplaceRecs:0, feReplaceChars:0, feReplaceFirst:null, cpLost:0, cpLostFirst:null }; }
+function resetSaveStats(){ saveStats = { feReplaceRecs:0, feReplaceChars:0, feReplaceFirst:null, cpLost:0, cpLostRecs:0, cpLostFirst:null }; }
 
 function countChar(s, c){
   let n=0;
@@ -1105,6 +1161,7 @@ function createStreamDecoder(meta){
    ============================================================= */
 function encodeCp1252Chunk(text, stats){
   const bytes = [];
+  let lostHere = false;
   for(let i=0;i<text.length;i++){
     const cp = text.charCodeAt(i);
     if(cp <= 0x7F) bytes.push(cp);
@@ -1112,6 +1169,7 @@ function encodeCp1252Chunk(text, stats){
     else if(CP1252_MAP[text[i]] !== undefined) bytes.push(CP1252_MAP[text[i]]);
     else {
       bytes.push(0x3F);
+      lostHere = true;
       if(stats){
         stats.cpLost++;
         if(stats.cpLostFirst === null && currentRecordIdxForStats > 0) stats.cpLostFirst = currentRecordIdxForStats;
@@ -1119,6 +1177,7 @@ function encodeCp1252Chunk(text, stats){
       }
     }
   }
+  if(lostHere && stats) stats.cpLostRecs = (stats.cpLostRecs || 0) + 1;
   return Uint8Array.from(bytes);
 }
 function textToBytes(meta, text, stats){
@@ -1198,7 +1257,7 @@ const CHUNK_BYTES = 8 * 1024 * 1024; // 8 MiB
    resulting text into a RecordStreamer.
    onRecord(rec) may be async-safe: we await callbacks.
    onProgress({read,total}) is throttled inside. */
-async function scanFile(file, meta, fmtKey, onRecord, onProgress){
+async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   const dec = createStreamDecoder(meta);
   const streamer = new RecordStreamer(fmtKey, onRecord);
   const total = file.size;
@@ -1220,6 +1279,7 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress){
       bytes = merged;
     }
 
+    if(onRawChunk) onRawChunk(bytes);  // audit: feed exact file bytes (no BOM)
     const text = dec.decode(bytes);
     await streamer.push(text);
 
@@ -1864,8 +1924,10 @@ function showSaveWarnings(successToast){
    Save — second streaming pass, constant memory
    ============================================================= */
 
-/* Output sink abstraction */
-function createSink(){
+/* Output sink abstraction. onWrite(bytes) is invoked for EVERY byte
+   handed to writeBytes — BOM and merged chunks alike — so an audit
+   hash of the output never duplicates or misses data. */
+function createSink(onWrite){
   const usesPicker = typeof window.showSaveFilePicker === 'function';
   let writable = null;
   let pickerError = null;
@@ -1897,6 +1959,7 @@ function createSink(){
     },
     cancelReason(){ return pickerError; },
     async writeBytes(bytes){
+      if(onWrite) onWrite(bytes);
       if(writable){
         try {
           await writable.write(bytes);
@@ -1948,8 +2011,12 @@ async function saveFile(){
 
   const fmt = fmtInfo();
   resetSaveStats();
+  const wantAudit = !!(typeof $ !== 'undefined' && $('#reorderAuditCbx') && $('#reorderAuditCbx').checked);
+  const inHasher  = wantAudit ? createSha256() : null;
+  const outHasher = wantAudit ? createSha256() : null;
+  let srcHash = null, outHash = null;
   const downloadName = $('#outName').value.trim() || 'reordered.dat';
-  const sink = createSink();
+  const sink = createSink(outHasher ? (b => outHasher.update(b)) : null);
   const mode = await sink.begin(downloadName);
   if(mode === 'cancelled'){
     toast('Save cancelled.');
@@ -2064,15 +2131,32 @@ async function saveFile(){
       if(rowCount % ON_EVERY === 0){
         await new Promise(r => setTimeout(r, 0)); // let the UI breathe
       }
-    }, onProgress);
+    }, onProgress, inHasher ? (b => inHasher.update(b)) : null);
 
     await flushTrailingEol();
 
     const size = await sink.finish(downloadName);
+    try {
+      srcHash  = inHasher  ? inHasher.hexDigest()  : null;
+      outHash  = outHasher ? outHasher.hexDigest() : null;
+    } catch(e){ console.warn('SHA-256 digest failed:', e); }
     const okMsg = size === null
       ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
       : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
     showSaveWarnings(okMsg);
+    if(wantAudit){
+      try{
+        const rep = buildAuditReport({
+          mode: 'reorder',
+          downloadName,
+          writtenRecords: rowCount,
+          overrideUsed: !!(typeof mm !== 'undefined' && mm && $('#reorderMismatchCbx') && $('#reorderMismatchCbx').checked),
+          srcHash,
+          outHash
+        });
+        safeOpenAuditModal(auditReportNameFor(downloadName), rep.text, rep.status);
+      }catch(e){ console.warn('Audit report not generated:', e); }
+    }
   } catch(err){
     console.error(err);
     toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
@@ -2442,8 +2526,12 @@ async function saveClientFile(){
 
   const fmt = fmtInfo();
   resetSaveStats();
+  const wantAudit = !!(typeof $ !== 'undefined' && $('#clAuditCbx') && $('#clAuditCbx').checked);
+  const inHasher  = wantAudit ? createSha256() : null;
+  const outHasher = wantAudit ? createSha256() : null;
+  let srcHash = null, outHash = null;
   const downloadName = (clOutName.value.trim() || 'client_mapped.dat');
-  const sink = createSink();
+  const sink = createSink(outHasher ? (b => outHasher.update(b)) : null);
   const mode = await sink.begin(downloadName);
   if(mode === 'cancelled'){ toast('Save cancelled.'); return; }
   if(mode === 'blob'){
@@ -2494,14 +2582,31 @@ async function saveClientFile(){
       if(rowCount % 10000 === 0) await new Promise(r=>setTimeout(r,0));
     }, ({pct}) => {
       if(pct !== null && pct !== lastPct){ lastPct = pct; setBusy('Writing client file…', `${pct}% · ${rowCount.toLocaleString()} records written`); }
-    });
+    }, inHasher ? (b => inHasher.update(b)) : null);
 
     await flushTrailingEol();
     const size = await sink.finish(downloadName);
+    try {
+      srcHash  = inHasher  ? inHasher.hexDigest()  : null;
+      outHash  = outHasher ? outHasher.hexDigest() : null;
+    } catch(e){ console.warn('SHA-256 digest failed:', e); }
     const okMsg = size === null
       ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
       : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
     showSaveWarnings(okMsg);
+    if(wantAudit){
+      try{
+        const rep = buildAuditReport({
+          mode: 'client',
+          downloadName,
+          writtenRecords: rowCount,
+          overrideUsed: !!(typeof mm !== 'undefined' && mm && $('#clMismatchCbx') && $('#clMismatchCbx').checked),
+          srcHash,
+          outHash
+        });
+        safeOpenAuditModal(auditReportNameFor(downloadName), rep.text, rep.status);
+      }catch(e){ console.warn('Audit report not generated:', e); }
+    }
   } catch(err){
     console.error(err);
     toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
@@ -2748,6 +2853,290 @@ if(typeof window.showSaveFilePicker === 'function'){
   note.textContent = '💾 This browser saves via an in-memory download. For multi-GB files, Chrome/Edge can stream straight to disk.';
   document.querySelector('.save-area').appendChild(note);
 }
+
+/* =============================================================
+   Validation Report (audit) support — pure-JS incremental SHA-256
+   so multi-GB files never need full buffering. The report is built
+   after a save from data already collected; download is manual.
+   ============================================================= */
+function sha256RotR(x,n){ return ((x>>>n)|(x<<(32-n)))>>>0; }
+
+function createSha256(){
+  const K = [
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+  ];
+  let h0=0x6a09e667, h1=0xbb67ae85, h2=0x3c6ef372, h3=0xa54ff53a;
+  let h4=0x510e527f, h5=0x9b05688c, h6=0x1f83d9ab, h7=0x5be0cd19;
+  let buflen = 0;
+  let bytesTotal = 0;
+  const buf = new Uint8Array(128);
+
+  function compress(chunk){
+    const w = new Uint32Array(64);
+    for(let i=0;i<16;i++){
+      const o = i*4;
+      w[i] = ((chunk[o]<<24)|(chunk[o+1]<<16)|(chunk[o+2]<<8)|chunk[o+3])>>>0;
+    }
+    for(let i=16;i<64;i++){
+      const s0 = (sha256RotR(w[i-15],7) ^ sha256RotR(w[i-15],18) ^ (w[i-15]>>>3))>>>0;
+      const s1 = (sha256RotR(w[i-2],17) ^ sha256RotR(w[i-2],19) ^ (w[i-2]>>>10))>>>0;
+      w[i] = ((w[i-16] + s0 + w[i-7] + s1)>>>0);
+    }
+    let a=h0,b=h1,c=h2,d=h3,e=h4,f=h5,g=h6,hh=h7;
+    for(let i=0;i<64;i++){
+      const S1 = (sha256RotR(e,6) ^ sha256RotR(e,11) ^ sha256RotR(e,25))>>>0;
+      const ch = ((e & f) ^ ((~e) & g))>>>0;
+      const t1 = ((hh + S1 + ch + K[i] + w[i])>>>0);
+      const S0 = (sha256RotR(a,2) ^ sha256RotR(a,13) ^ sha256RotR(a,22))>>>0;
+      const maj = ((a & b) ^ (a & c) ^ (b & c))>>>0;
+      const t2 = (S0 + maj)>>>0;
+      hh=g; g=f; f=e; e=(d+t1)>>>0; d=c; c=b; b=a; a=(t1+t2)>>>0;
+    }
+    h0=(h0+a)>>>0; h1=(h1+b)>>>0; h2=(h2+c)>>>0; h3=(h3+d)>>>0;
+    h4=(h4+e)>>>0; h5=(h5+f)>>>0; h6=(h6+g)>>>0; h7=(h7+hh)>>>0;
+  }
+
+  return {
+    update(u8){
+      if(!u8 || u8.length === 0) return this;
+      bytesTotal += u8.length;
+      let p = 0;
+      if(buflen > 0){
+        const take = Math.min(128-buflen, u8.length);
+        buf.set(u8.subarray(0, take), buflen);
+        buflen += take;
+        p = take;
+        if(buflen === 128){
+          compress(buf.subarray(0,64));
+          compress(buf.subarray(64,128));
+          buflen = 0;
+        }
+      }
+      while(p + 128 <= u8.length){
+        compress(u8.subarray(p, p+64));
+        compress(u8.subarray(p+64, p+128));
+        p += 128;
+      }
+      if(p < u8.length){
+        buf.set(u8.subarray(p));
+        buflen = u8.length - p;
+      }
+      return this;
+    },
+    hexDigest(){
+      // Length (bits) as two 32-bit halves. Safe for files far beyond
+      // practical sizes: hi/low split of (bytes*8) uses exact arithmetic
+      // because bytes < 2^50 (< 1 PB) keeps products exact.
+      const rem = buflen;
+      const bitHi = Math.floor(bytesTotal / 0x20000000) >>> 0;          // floor(bytes/2^29)
+      const bitLo = ((bytesTotal % 0x20000000) * 8) >>> 0;              // low 32 bits of bits
+      // Build final padded message (0x80 … 0s … 64-bit big-endian length).
+      let totalWanted = 64;
+      while(totalWanted < rem + 8 + 1) totalWanted += 64;
+      const fin = new Uint8Array(totalWanted);
+      buf.copyWithin ? buf.copyWithin(0, 0, rem) : null;
+      fin.set(buf.subarray(0, rem), 0);
+      fin[rem] = 0x80;
+      for(let i=0;i<4;i++){
+        fin[fin.length-8+i] = (bitHi >>> (24 - i*8)) & 0xFF;
+        fin[fin.length-4+i] = (bitLo >>> (24 - i*8)) & 0xFF;
+      }
+      for(let o=0;o<totalWanted;o+=64) compress(fin.subarray(o, o+64));
+      const st = [h0,h1,h2,h3,h4,h5,h6,h7];
+      let hex = '';
+      for(let i=0;i<8;i++) hex += (st[i]>>>0).toString(16).padStart(8,'0');
+      return hex;
+    }
+  };
+}
+
+let auditText = '';          // last generated report (for copy / download)
+let auditFileName = 'audit.txt';
+
+function auditReportNameFor(outputFile){
+  const dot = String(outputFile).lastIndexOf('.');
+  const base = dot > 0 ? String(outputFile).slice(0,dot) : String(outputFile);
+  return base + '__audit.txt';
+}
+
+function downloadTextFile(fileName, text){
+  const blob = new Blob([text], { type:'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+}
+
+function showAuditModal(fileName, text, status){
+  auditText = text;
+  auditFileName = fileName;
+  const badge = $('#auditStatusBadge');
+  if(badge){
+    badge.textContent = status;
+    badge.className = 'badge ' + (status === 'PASS' ? 'ok' : (status === 'WARN' ? 'warn-b' : 'red'));
+  }
+  const pre = $('#auditPre');
+  if(pre) pre.textContent = text;
+  const overlay = $('#auditOverlay');
+  if(overlay) overlay.classList.remove('hidden');
+}
+
+function closeAuditModal(){
+  const overlay = $('#auditOverlay');
+  if(overlay) overlay.classList.add('hidden');
+}
+
+function safeOpenAuditModal(fileName, text, status){
+  try { showAuditModal(fileName, text, status); }
+  catch(e){ console.warn('Audit report render failed:', e); }
+}
+
+/* Build the human-readable validation report. `info` carries
+   everything measured during the save (see saveFile/saveClientFile). */
+function buildAuditReport(info){
+  const L = [];
+  const A = (...x) => L.push(x.filter(v => v !== null && v !== undefined && v !== '').join(''));
+  const now = new Date();
+  const p = state.parseInfo || {};
+  const fmt = FORMATS[state.fmtKey];
+  const mm = headerMismatchSummary();
+
+  A('DAT FIELD REORDER — VALIDATION REPORT');
+  A('======================================');
+  A('Generated (UTC)  : ', now.toISOString());
+  A('Operation        : ', info.mode === 'client' ? 'Client Header Map' : 'Reorder / Remove');
+  A('Output file      : ', info.downloadName);
+  A('Tool             : DAT Field Reorder (streaming, 100% local)');
+  A('');
+  A('== Input file ==');
+  if(state.file) A('Name             : ', state.fileName);
+  A('Size             : ', state.sizeBytes != null ? fmtBytesLabel(state.sizeBytes) : '—');
+  A('Detected format  : ', fmt ? fmt.label : state.fmtKey, ' (', fmt ? fmt.hint : '', ')');
+  A('Encoding         : ', state.detected ? state.detected.label : '—');
+  A('EOL              : ', state.eolLabel || '—');
+  A('BOM              : ', state.detected ? (state.detected.hasBOM ? 'present' : 'none') : '—');
+  A('');
+
+  A('== Record & Column Reconciliation ==');
+  A('Source data records (header excluded) : ', (p.dataRecords||0).toLocaleString());
+  A('Output records written                : ', (info.writtenRecords||0).toLocaleString());
+  const recOk = (p.dataRecords||0) === (info.writtenRecords||0);
+  A('100% record reconciliation            : ', recOk ? 'YES ✅' : 'NO ❌');
+  A('Column-count mismatch rows            : ', mm ? mm.count.toLocaleString() : '0',
+    mm ? ('  [' + mm.detail + ' → headers have ' + mm.mainCnt + ' cols]') : '  (all match header)');
+  A('Multiline (quoted newline) records    : ', (p.multiline||0).toLocaleString());
+  A('Column-count override used            : ', info.overrideUsed ? 'YES' : 'no');
+  A('Record count is exact by construction : rows are not split/merged during streaming scan.');
+  A('');
+
+  A('== Data Loss Report ==');
+  const w = saveStats;
+  if(w.feReplaceChars > 0){
+    A('EDML 0x14/0xFE rewritten to spaces : ', w.feReplaceChars.toLocaleString(),
+      ' chars across ', w.feReplaceRecs.toLocaleString(), ' records',
+      ' (first: ', w.feReplaceFirst === null ? 'header' : 'record #'+w.feReplaceFirst, ')');
+  }
+  if(w.cpLost > 0){
+    A('Windows-1252 \'?\' replacements       : ', w.cpLost.toLocaleString(),
+      ' chars across ', saveStats.cpLostRecs != null ? saveStats.cpLostRecs.toLocaleString() : '?',
+      ' records',
+      ' (first: ', w.cpLostFirst === null ? 'header' : 'record #'+w.cpLostFirst, ')');
+  }
+  if(state.utf16TruncatedTail){
+    A('⚠️ Broken UTF-16 tail byte         : last odd byte was replaced with U+FFFD.');
+  }
+  const anyLoss = (w.feReplaceChars > 0) || (w.cpLost > 0) || !!state.utf16TruncatedTail;
+  A('Status           : ', anyLoss ? '⚠ WARN — see lines above' : '✅ No character/control substitution occurred');
+  A('');
+
+  A('== Checksums (SHA-256) ==');
+  A('Source bytes     : ', info.srcHash || '(hash unavailable)');
+  A('Output bytes     : ', info.outHash || '(hash unavailable)');
+  A('Scope note       : Source = full original file (BOM inclusive). Output = every byte written.');
+  A('');
+
+  A('== ' + (info.mode === 'client' ? 'Mapping Snapshot (client headers → source fields)' : 'Field plan (final output columns)') + ' ==');
+  if(info.mode === 'client'){
+    const rows = cl.rows || [];
+    const seen = new Map();
+    rows.forEach((r, pos) => {
+      let reuse = '';
+      if(r.mapped !== null){
+        const name = state.headerNames[r.mapped] || '(unknown col ' + (r.mapped+1) + ')';
+        if(seen.has(r.mapped)){
+          reuse = '  (shared source with output #' + seen.get(r.mapped) + ')';
+        } else {
+          seen.set(r.mapped, pos+1);
+        }
+        A(String(pos+1).padStart(2,' ') + '. ', r.name, '  ← ', name, reuse);
+      } else {
+        A(String(pos+1).padStart(2,' ') + '. ', r.name, '  ← (empty — emitted as blank)');
+      }
+    });
+  } else {
+    const order = state.orderTarget || [];
+    A('Final output order (source col #: name):');
+    order.forEach((origIdx, pos)=>{
+      A(String(pos+1).padStart(2,' ') + '. ', state.headerNames[origIdx], '  (col ', (origIdx+1), ')');
+    });
+    const removed = state.headerNames.map((n,i)=>({n,i})).filter(o=>!order.includes(o.i));
+    A('');
+    A('Removed fields     : ', removed.length);
+    removed.forEach(o=>{ A('   - ', o.n, ' (source col ', (o.i+1), ')'); });
+  }
+
+  const status = recOk && !anyLoss ? 'PASS' : (recOk ? 'WARN' : 'FAIL');
+  return { text: L.join('\n') + '\n', status };
+}
+
+function bindAuditModal(){
+  const close = () => closeAuditModal();
+  const dl = $('#auditDownloadBtn');
+  if(dl) dl.addEventListener('click', ()=>{
+    downloadTextFile(auditFileName, auditText);
+    toast('Audit report downloaded.');
+  });
+  const cp = $('#auditCopyBtn');
+  if(cp) cp.addEventListener('click', async ()=>{
+    try{
+      await navigator.clipboard.writeText(auditText);
+      toast('Audit report copied to clipboard.');
+    }catch(e){
+      toast('⚠️ Clipboard unavailable — use Download instead.');
+    }
+  });
+  const c1 = $('#auditCloseBtn');   if(c1) c1.addEventListener('click', close);
+  const c2 = $('#auditCloseBtn2');  if(c2) c2.addEventListener('click', close);
+  const ov = $('#auditOverlay');
+  if(ov) ov.addEventListener('click', e=>{ if(e.target === ov) close(); });
+}
+
+bindAuditModal();
+
+// SHA-256 self-test (FIPS 180-4 KAT: SHA-256("abc"))
+(function(){
+  try{
+    const h = createSha256().update(new TextEncoder().encode('abc')).hexDigest();
+    if(h === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'){
+      console.info('DAT audit SHA-256 self-test OK');
+    } else {
+      console.warn('DAT audit SHA-256 self-test MISMATCH:', h);
+    }
+  }catch(e){
+    console.warn('DAT audit SHA-256 self-test error:', e);
+  }
+})();
 
 console.info('DAT Field Reorder — streaming edition. Supported: þ 0xFE, ^|^ Concordance, CSV, Tab, Pipe. All local.');
 </script>

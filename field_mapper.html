@@ -1,0 +1,2500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DAT Field Reorder — .dat / Load File Reordering & Removal</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗂️</text></svg>">
+<style>
+  :root{
+    --bg:#eef1f6;
+    --card:#ffffff;
+    --ink:#1c2430;
+    --muted:#5b6b7f;
+    --line:#d7dee8;
+    --brand:#1556c9;
+    --brand-dark:#0d3e91;
+    --brand-soft:#e7efff;
+    --ok:#0a7d3e;
+    --warn:#b37a00;
+    --bad:#b3342c;
+    --shadow:0 1px 3px rgba(20,30,60,.08),0 8px 24px rgba(20,30,60,.06);
+    --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.45;
+    padding-bottom:80px;
+  }
+  button{font:inherit;cursor:pointer;border:0}
+  input,select{font:inherit}
+
+  .topbar{
+    background:linear-gradient(115deg,#102b5c 0%,#1556c9 70%,#1a6ae0 100%);
+    color:#fff; display:flex; align-items:center; justify-content:space-between;
+    gap:16px; padding:16px 26px; flex-wrap:wrap;
+    box-shadow:var(--shadow); position:sticky; top:0; z-index:50;
+  }
+  .creator-credit{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    font-size:10.5px; opacity:.55; letter-spacing:1.2px; white-space:nowrap;
+    pointer-events:none; color:#fff; font-weight:400; text-transform:uppercase;
+  }
+  @media (max-width:600px){
+    .creator-credit{display:none}
+  }
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand .logo{
+    width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.14);
+    display:flex;align-items:center;justify-content:center;font-size:22px;
+    backdrop-filter:blur(3px);
+  }
+  .brand h1{font-size:19px;font-weight:650;letter-spacing:.2px}
+  .brand p{font-size:12.5px;opacity:.85;margin-top:1px}
+  .privacy-badge{
+    background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.35);
+    padding:7px 14px;border-radius:999px;font-size:12.5px;display:flex;gap:7px;
+    align-items:center;font-weight:500;white-space:nowrap;
+  }
+
+  main{max-width:1500px;margin:26px auto 0;padding:0 24px;display:grid;gap:20px}
+
+  .go-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .step-item{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:14px 16px;display:flex;gap:13px;align-items:flex-start;box-shadow:var(--shadow);
+  }
+  .step-num{
+    flex:0 0 30px;height:30px;border-radius:9px;background:var(--brand-soft);color:var(--brand);
+    font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;
+  }
+  .step-item b{display:block;font-size:14.5px;margin-bottom:2px}
+  .step-item span{font-size:12.8px;color:var(--muted)}
+
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:18px 20px;
+  }
+  .card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+  .card-h h2{font-size:16px;font-weight:650;display:flex;align-items:center;gap:8px}
+  .card-h .meta{font-size:12.5px;color:var(--muted)}
+
+  #dropZone{
+    border:2px dashed #9fb4d8;border-radius:16px;padding:38px 24px;text-align:center;
+    background:linear-gradient(180deg,#f7faff,#eef4ff);transition:.18s;cursor:pointer;
+  }
+  #dropZone:hover{border-color:var(--brand);background:#e9f1ff}
+  #dropZone.over{border-color:var(--brand);background:#dceaFF;transform:scale(1.002)}
+  #dropZone .big{font-size:18px;font-weight:600}
+  #dropZone .sub{font-size:13px;color:var(--muted);margin-top:7px}
+  .dz-icon{font-size:44px;margin-bottom:6px;display:block}
+
+  #fmtBar{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    background:#f4f8ff;border:1px solid #c9d9f2;border-radius:12px;
+    padding:10px 14px;margin-top:14px;font-size:13px;
+  }
+  #fmtBar .f-label{font-weight:700}
+  #fmtOverride{padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12.5px}
+  .btn{
+    background:#f2f5fa;border:1px solid var(--line);border-radius:8px;padding:5px 11px;
+    font-size:12.3px;color:#333f52;display:inline-flex;align-items:center;gap:5px;transition:.12s;
+    user-select:none;
+  }
+  .btn:hover{background:#e9eef7;border-color:#b8c6da}
+  .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:550}
+  .btn.primary:hover{background:var(--brand-dark)}
+  .btn.danger:hover{background:#fdecea;border-color:#e8b5b0;color:#b3342c}
+  .btn:disabled{opacity:.45;pointer-events:none}
+  .btn.sm{padding:3px 8px;font-size:12px}
+
+  #fileSummary{margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .stat-tile{
+    background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:10px 13px;
+  }
+  .stat-tile .k{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .stat-tile .v{font-size:15px;font-weight:650;margin-top:3px;word-break:break-all}
+  .stat-tile .v small{font-weight:500;color:var(--muted)}
+
+  .hidden{display:none !important}
+
+  .workspace-grid{display:grid;grid-template-columns:minmax(250px,420px) minmax(0,1fr);gap:18px;align-items:start}
+  /* Fixed, viewport-aware pane height: ~15 visible rows on a desktop,
+     then the inner list scrolls. Both panes are capped so they never
+     push into (or overlap) the Preview / Save cards below. */
+  .pane{display:flex;flex-direction:column;height:680px;min-height:0;overflow:hidden}
+  @supports (height:100dvh){
+    .pane{height:min(680px, calc(100dvh - 210px))}
+  }
+  .pane > .pane-head,
+  .pane > .search-box,
+  .pane > .toolbar,
+  .pane > .preview-note,
+  .pane > .warning-box{flex:none}
+  /* Flex-chain fix: without this, #targetList had no scrollable
+     parent with a bounded height and grew unbounded instead. */
+  #targetContainer{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+  #targetList{min-height:0;flex:1 1 auto}
+  #emptyTarget{flex:1 1 auto;margin:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center}
+  .pane-head{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line);
+    padding-bottom:10px;margin-bottom:8px;
+  }
+  .pane-head h3{font-size:14px;font-weight:650;flex:1}
+  .search-box{
+    display:flex;align-items:center;gap:6px;background:#f3f6fb;border:1px solid var(--line);
+    border-radius:9px;padding:6px 10px;width:100%;margin-top:2px;
+  }
+  .search-box input{border:0;background:transparent;outline:none;width:100%;font-size:13px}
+  .search-box .ico{color:var(--muted)}
+
+  .toolbar{display:flex;gap:7px;flex-wrap:wrap;margin:7px 0 9px}
+
+  .listbox{
+    overflow-y:auto;border:1px solid var(--line);border-radius:10px;background:#fbfcfe;
+    min-height:130px;flex:1 1 auto;
+  }
+  .field-row{
+    display:flex;align-items:center;gap:7px;padding:7px 10px 7px 8px;border-bottom:1px solid #edf0f5;
+    font-size:13px;cursor:default;transition:background .08s;
+  }
+  .field-row:last-child{border-bottom:0}
+  .field-row:hover{background:#eef4ff}
+  .field-row .idx{
+    flex:0 0 25px;height:22px;border-radius:6px;background:#e6ebf3;color:#526079;
+    font-size:11px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;
+  }
+  /* Field names truncate to one line with ellipsis + title tooltip,
+     keeping every row a fixed height and the columns/buttons un-pushed. */
+  .field-row .nm{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .field-row .add-ic{color:var(--brand);font-weight:700;font-size:15px;opacity:.75;flex:none}
+  .field-row:hover .add-ic{opacity:1}
+  .field-row.empty{
+    color:var(--muted);font-style:italic;justify-content:center;padding:28px 10px;gap:0;
+  }
+  .field-row.target-item{background:#fff}
+  .field-row.target-item:hover{background:#f2f7ff}
+
+  .drag-placeholder{outline:2px dashed var(--brand);background:#e4efff}
+  .drag-over{outline:2px dashed var(--brand);background:#e4efff}
+
+  .mini-btns{display:flex;gap:2px;flex:none}
+  .mini-btns button{
+    width:24px;height:24px;border-radius:6px;background:#f1f4f9;display:flex;align-items:center;
+    justify-content:center;color:#4a586c;font-size:11px;line-height:1;padding:0;
+  }
+  .mini-btns button:hover{background:#dce7fa;color:var(--brand)}
+  .mini-btns button.del{width:auto;padding:0 7px;font-size:11px}
+  .mini-btns button.del:hover{background:#fdecea;color:var(--bad)}
+
+  .empty-target-box{
+    border:1px dashed #b9c7db;border-radius:10px;background:#fbfdff;margin:4px 0;
+    padding:40px 14px;text-align:center;color:var(--muted);font-size:13px;line-height:1.8;
+  }
+
+  .preview-note{font-size:12.3px;color:var(--muted);margin-bottom:10px}
+  .table-wrap{overflow:auto;max-height:310px;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;min-width:100%;font-size:12.4px}
+  thead th{
+    background:#f1f5fb;color:#33415a;position:sticky;top:0;z-index:2;text-align:left;
+    padding:8px 10px;border-bottom:1px solid #d3dce8;font-weight:600;white-space:nowrap;
+    box-shadow:0 1px 0 #d3dce8;max-width:260px;overflow:hidden;text-overflow:ellipsis;
+  }
+  tbody td{padding:7px 10px;border-bottom:1px solid #edf0f6;vertical-align:top;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  tbody tr:hover{background:#f8fafd}
+  thead th .cnum{display:block;font-size:10px;color:var(--muted);font-weight:500}
+
+  .save-area{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#f6f9ff;
+    border:1px solid #c8d8f5;border-radius:12px;padding:14px 16px;margin-top:14px;
+  }
+  .save-area .grow{flex:1;min-width:250px}
+  #outName{
+    width:100%;border:1px solid var(--line);background:#fff;border-radius:9px;
+    padding:8px 11px;font-size:13.5px;
+  }
+  .btn-big{
+    background:var(--brand);color:#fff;border-radius:10px;padding:10px 22px;font-weight:650;
+    font-size:14px;box-shadow:0 3px 8px rgba(21,86,201,.25);transition:.14s;white-space:nowrap;
+  }
+  .btn-big:hover{background:var(--brand-dark);transform:translateY(-1px)}
+  .btn-big:disabled{opacity:.5;pointer-events:none;transform:none}
+
+  .warning-box{
+    background:#fff7e0;border:1px solid #f0dd9f;color:#6b5400;border-radius:9px;
+    padding:9px 13px;font-size:12.5px;margin-top:10px;display:flex;gap:8px;line-height:1.6;
+    align-items:flex-start;
+  }
+  .removed-names{flex:1;word-break:break-word}
+  .badge{
+    display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;
+    border-radius:999px;padding:2px 9px;white-space:nowrap;
+  }
+  .badge.ok{background:#e2f5e9;color:var(--ok)}
+  .badge.warn-b{background:#fff2d6;color:var(--warn)}
+  .badge.gray{background:#eef2f7;color:#54637a}
+  .badge.red{background:#fdecea;color:var(--bad)}
+
+  .toast{
+    position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(90px);
+    background:#202a38;color:#fff;padding:11px 20px;border-radius:11px;font-size:13.5px;
+    box-shadow:0 12px 32px rgba(0,0,0,.25);transition:.3s;max-width:92%;z-index:100;
+    text-align:center;opacity:0;pointer-events:none;
+  }
+  .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+  #busy{position:fixed;inset:0;background:rgba(255,255,255,.68);z-index:200;display:none;
+    align-items:center;justify-content:center;backdrop-filter:blur(2px);}
+  #busy.show{display:flex}
+  .busybox{display:flex;align-items:center;gap:13px;background:#fff;padding:20px 28px;
+    border-radius:14px;box-shadow:0 12px 36px rgba(20,40,80,.2);border:1px solid var(--line);font-weight:600}
+  .spinner{width:26px;height:26px;border-radius:50%;border:4px solid #cfe0fc;border-top-color:var(--brand);
+    animation:spin .8s linear infinite;flex:0 0 26px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #busyLabel{font-weight:500;font-size:13px;color:#445;line-height:1.5;max-width:520px;word-break:break-word}
+
+  .light-txt{color:var(--muted)}
+
+  /* ============ Mode tabs (원본 + 클라이언트 매핑) ============ */
+  .mode-tabs{
+    display:flex;gap:8px;background:var(--card);border:1px solid var(--line);
+    border-radius:var(--radius);padding:7px;box-shadow:var(--shadow);margin-bottom:2px;
+  }
+  .mtab{
+    flex:1;padding:10px 12px;border-radius:10px;background:#f1f4f9;color:#4a586c;
+    font-weight:600;font-size:13.5px;display:flex;gap:8px;align-items:center;justify-content:center;
+    transition:.12s;
+  }
+  .mtab:hover{background:#e7edf7}
+  .mtab.on{background:linear-gradient(115deg,#1556c9,#1a6ae0);color:#fff;box-shadow:0 2px 6px rgba(21,86,201,.22)}
+  .mtab small{opacity:.75;font-weight:500;display:block;font-size:11px}
+  .mtab .mi{font-size:17px}
+
+  /* ============ Client-map workspace ============ */
+  .client-grid{display:grid;grid-template-columns:minmax(250px,420px) minmax(0,1fr);gap:18px;align-items:start}
+  .client-pane{display:flex;flex-direction:column;height:620px;min-height:0;overflow:hidden}
+  .client-pane > .pane-head,
+  .client-pane > .search-box,
+  .client-pane > .toolbar,
+  .client-pane > .preview-note{flex:none}
+  #clRowsWrap{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+  #clientRowsBox{min-height:0;flex:1 1 auto}
+  #clEmptyRows{flex:1 1 auto;margin:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center}
+  #clSrcPane{display:flex;flex-direction:column;height:620px;min-height:0;overflow:hidden}
+  #clSrcPane > .search-box,
+  #clSrcPane > .toolbar,
+  #clSrcPane > .preview-note{flex:none}
+  #clSrcPane .listbox{flex:1 1 auto;min-height:0}
+  .client-row{
+    display:flex;align-items:center;gap:6px;padding:6px 8px 6px 6px;
+    border-bottom:1px solid #edf0f5;font-size:12.8px;cursor:pointer;transition:background .08s;
+  }
+  .client-row:last-child{border-bottom:0}
+  .client-row:hover{background:#f2f7ff}
+  .client-row.sel{background:#e3edff;box-shadow:inset 3px 0 0 var(--brand)}
+  .client-row .cno{
+    flex:0 0 26px;height:21px;border-radius:6px;background:#e6ebf3;color:#526079;
+    font-size:10.5px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;
+  }
+  .client-row .cname{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+  .client-row .cmap{
+    flex:0 1 auto;max-width:46%;display:inline-flex;align-items:center;gap:5px;
+    background:#eef4ff;border:1px solid #cedcf6;border-radius:8px;padding:3px 8px;
+    font-size:11.5px;color:#24509b;white-space:nowrap;overflow:hidden;min-width:0;
+  }
+  .client-row .cmap b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .client-row .cmap.un{background:#f4f6f9;border-color:#e1e5ec;color:#8595a8}
+  .client-row .cmap .unlink{
+    flex:none;width:16px;height:16px;border-radius:5px;background:#e6edF9;color:#3f5f9c;
+    font-size:10px;line-height:1;display:flex;align-items:center;justify-content:center;
+  }
+  .client-row .cmap .unlink:hover{background:#fdeaea;color:var(--bad)}
+  .cl-dir{color:var(--brand);flex:none;font-size:12px;font-weight:600}
+  .badge-map{background:#ecf7ee;color:var(--ok)}
+  .badge-empty{background:#fff2d6;color:var(--warn)}
+  .badge-src{background:#eef2f7;color:#54637a;display:inline-block;font-size:10px;font-weight:600}
+  #clPasteText{
+    width:100%;height:92px;resize:vertical;border:1px solid var(--line);border-radius:10px;
+    padding:10px 12px;font-size:13px;background:#fbfcfe;font-family:inherit;color:var(--ink);
+  }
+  #clPasteText:focus{outline:2px solid var(--brand);outline-offset:-1px;background:#fff}
+  .cl-sample{
+    background:#f4f8ff;border:1px solid #c9d9f2;border-radius:9px;padding:8px 12px;
+    font-size:12px;color:#31517f;margin-top:8px;white-space:pre-wrap;line-height:1.65;
+  }
+  .src-field-status{flex:none;display:inline-flex;align-items:center}
+  #clGridArea.hidden{display:none!important}
+  .client-footer-note{font-size:12.3px;color:var(--muted)}
+  .cl-preview-empty{color:var(--muted);font-style:italic}
+
+  @media (max-width:900px){
+    .go-steps{grid-template-columns:1fr}
+    .workspace-grid{grid-template-columns:1fr}
+    .client-grid{grid-template-columns:1fr}
+    .topbar{justify-content:center;text-align:center}
+    main{padding:0 12px}
+    .client-pane{height:auto;max-height:520px}
+    #clSrcPane{height:auto;max-height:520px}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="creator-credit">Hyunsoo Lee</span>
+  <div class="brand">
+    <div class="logo">🗂️</div>
+    <div style="min-width:0">
+      <h1>DAT Field Reorder</h1>
+      <p>eDiscovery Load File Field Ordering & Removal</p>
+    </div>
+  </div>
+  <div class="privacy-badge" title="Your file is processed entirely in the browser. Nothing is uploaded.">
+    🛡️ 100% Local Processing · No Upload · No Server
+  </div>
+</header>
+
+<main>
+  <section class="go-steps" id="guide">
+    <div class="step-item"><div class="step-num">1</div><div>
+      <b>Load .dat</b><span>Drop or browse. Format (þ, ^|^, CSV, Tab, Pipe) and encoding are detected automatically.</span></div></div>
+    <div class="step-item"><div class="step-num">2</div><div>
+      <b>Reorder / Remove Fields</b><span>Drag rows or use buttons. Press 🗑 to remove any field from output.</span></div></div>
+    <div class="step-item"><div class="step-num">3</div><div>
+      <b>Save New File</b><span>Writes the <b>same detected format & encoding</b> as the source. Original is untouched.</span></div></div>
+  </section>
+
+  <!-- File select -->
+  <section class="card" id="fileCard">
+    <div id="dropZone" tabindex="0" role="button" aria-label="Open load file">
+      <span class="dz-icon">📄</span>
+      <div class="big">Drop a load file here</div>
+      <div class="sub">or <u>click to browse</u> &middot; supports <b>þ (0xFE)</b>, <b>Concordance ^|^</b>, CSV, Tab, Pipe &middot; first row = header</div>
+      <input type="file" id="fileInput" accept=".dat,.txt,.csv,.opt,.load,application/octet-stream" hidden>
+    </div>
+
+    <div id="fmtBar" class="hidden">
+      <span class="f-label">📐 Detected Load Format</span>
+      <span class="badge ok" id="fmtBadge">—</span>
+      <span style="flex:1"></span>
+      <label>Override&nbsp;
+        <select id="fmtOverride">
+          <option value="">Auto (recommended)</option>
+          <option value="fe">þ (0xFE)</option>
+          <option value="cc">Concordance ^|^</option>
+          <option value="csv">CSV (",")</option>
+          <option value="tsv">Tab-delimited</option>
+          <option value="pipe">Pipe (|)</option>
+        </select>
+      </label>
+      <button class="btn" id="btnReParse" title="Re-parse the file using the selected format">↺ Re-parse</button>
+    </div>
+
+    <div id="fileSummary" class="hidden"></div>
+  </section>
+
+  <!-- Workspace -->
+  <section id="workspace" class="hidden">
+
+    <div class="mode-tabs" id="modeTabs">
+      <button class="mtab on" type="button" data-mode="reorder" title="자유롭게 원본 필드를 drag / 순서변경 / 제거">
+        <span class="mi">🔀</span><span>Reorder Mode<small>필드 순서 자유 재배열</small></span>
+      </button>
+      <button class="mtab" type="button" data-mode="client" title="클라이언트 헤더 붙여넣기 → 우리 필드 연결 → 저장">
+        <span class="mi">📋</span><span>Client Header Map<small>클라이언트 헤더에 필드 매핑</small></span>
+      </button>
+    </div>
+
+    <div id="reorderArea">
+    <div class="workspace-grid">
+      <!-- Source fields -->
+      <article class="card pane">
+        <div class="pane-head">
+          <h3>📋 Source Fields <span id="srcCountTxt" class="badge gray"></span></h3>
+        </div>
+        <div class="search-box">
+          <span class="ico">🔍</span>
+          <input type="text" id="srcSearch" placeholder="Search fields (e.g. Bates, Custodian)" autocomplete="off">
+        </div>
+        <div class="toolbar">
+          <button class="btn primary sm" id="btnAddAll" title="Add every remaining field to the end of the new order">Add All Fields</button>
+          <button class="btn sm" id="btnResetOrder" title="Restore the original header order for every field">↺ Reset</button>
+        </div>
+        <div class="listbox" id="sourceList"></div>
+        <div class="preview-note" style="margin-top:8px;margin-bottom:0">Click a field to append it to the right ("New Field Order").</div>
+      </article>
+
+      <!-- New field order -->
+      <article class="card pane">
+        <div class="pane-head">
+          <h3>🎯 New Field Order <span id="tgtCountTxt" class="badge gray"></span></h3>
+          <div class="meta">Select a row &rarr; Drag · Top · Up · Down · Bottom · <b>🗑 Remove</b></div>
+        </div>
+        <div class="toolbar">
+          <button class="btn sm" id="btnMoveTop">⤒ Top</button>
+          <button class="btn sm" id="btnMoveUp">▲ Up</button>
+          <button class="btn sm" id="btnMoveDown">▼ Down</button>
+          <button class="btn sm" id="btnMoveBottom">⤓ Bottom</button>
+          <span style="flex:1"></span>
+          <button class="btn sm danger" id="btnShowRemoved">View Removed</button>
+        </div>
+        <div id="targetContainer">
+          <div class="empty-target-box" id="emptyTarget">
+            No fields in the new order yet.<br>
+            Click fields on the left, or press <b>&laquo;Add All Fields&raquo;</b> to begin with the full original header.<br>
+            <small class="light-txt">Typical flow: Add All &rarr; drag to reorder &rarr; press 🗑 on fields you don&rsquo;t need.</small>
+          </div>
+          <div class="listbox hidden" id="targetList"></div>
+        </div>
+        <div class="warning-box hidden" id="removedWarn">
+          <span>🗑️ <b>Removed fields</b> — excluded from the header and from every data row in the saved file:</span>
+        </div>
+      </article>
+    </div>
+
+    <!-- Preview -->
+    <article class="card">
+      <div class="card-h">
+        <h2>🔎 Preview — New Field Order</h2>
+        <span class="meta">Header + first 4 data records &middot; <span id="previewBadge"></span></span>
+      </div>
+      <div class="preview-note" id="previewNote">Build the new order to see a live preview here.</div>
+      <div class="table-wrap hidden" id="previewWrap">
+        <table id="previewTable">
+          <thead id="previewHead"></thead>
+          <tbody id="previewBody"></tbody>
+        </table>
+      </div>
+    </article>
+
+    <!-- Save -->
+    <article class="card">
+      <div class="card-h">
+        <h2>💾 Save</h2>
+        <span class="meta" id="saveFormatInfo"></span>
+      </div>
+      <div class="warning-box" style="margin-top:0;margin-bottom:12px" id="emitNote">
+        Output is written using the <b>same delimiter format and encoding</b> that was detected (or chosen) for the source file.
+      </div>
+      <div class="save-area">
+        <div class="grow">
+          <label style="font-size:12px;color:var(--muted)">Output file name</label>
+          <input type="text" id="outName" value="reordered.dat" spellcheck="false">
+        </div>
+        <button class="btn-big" id="btnSave">⬇ Download New File</button>
+      </div>
+    </article>
+    </div><!-- /reorderArea -->
+
+    <!-- ============ Client-map workspace ============ -->
+    <div id="clientArea" class="hidden">
+
+      <div class="card" id="clPasteCard" style="margin-bottom:18px">
+        <div class="card-h">
+          <h2>📋 Step 1 — 클라이언트 헤더 붙여넣기</h2>
+          <span class="meta" id="clHeaderInfo"></span>
+        </div>
+        <p style="font-size:12.8px;color:var(--muted);margin-bottom:9px;line-height:1.7">
+          엑셀에서 <b>클라이언트가 요구하는 헤더 행(또는 세로 줄 목록)</b>을 복사해서 아래에 붙여넣으세요.
+          아래 <b>클라이언트 헤더 순서 = 최종 출력 헤더 순서</b>가 됩니다.
+          좌우 2열(필드맵)을 붙여넣어도 되며, 이 경우 <b>오른쪽 열</b>이 출력 헤더로 사용됩니다.
+        </p>
+        <textarea id="clPasteText" spellcheck="false"
+          placeholder="Control Number&#10;Custodian&#10;Bates Number&#10;... (한 줄 = 헤더 1개)&#10;&#10;또는 엑셀에서 한 행 드래그 복사 :&#10;Control Number&#9;Custodian&#9;Bates Number&#9;...&#10;&#10;또는 필드맵 2열(좌:우리필드 / 우:클라이언트헤더) 복사 :&#10;CNUMBER&#9;Control Number&#10;CUSTODIAN&#9;Custodian&#10;..."></textarea>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:11px">
+          <button class="btn primary" id="btnClParsePaste">✔ Parse Header List</button>
+          <button class="btn" id="btnClClearPaste">Clear</button>
+          <span class="cl-sample" id="clPastePreview"></span>
+        </div>
+      </div>
+
+      <div id="clGridArea" class="hidden">
+      <div class="client-grid">
+        <!-- Our source fields -->
+        <article class="card client-pane" id="clSrcPane">
+          <div class="pane-head">
+            <h3>📋 Our Fields (원본 .dat 필드) <span id="clSrcCount" class="badge gray"></span></h3>
+          </div>
+          <div class="search-box">
+            <span class="ico">🔍</span>
+            <input type="text" id="clSrcSearch" placeholder="Search our fields…" autocomplete="off">
+          </div>
+          <div class="toolbar">
+            <button class="btn sm" id="btnClUnlinkAll">✕ 매핑 전체 해제</button>
+            <button class="btn sm" id="btnClAutoGuess" title="헤더 이름이 비슷한 우리 필드를 자동으로 1차 연결 (이름 정규화 비교)">✨ 자동 매칭 시도</button>
+          </div>
+          <div class="listbox" id="clSrcList"></div>
+          <div class="preview-note" style="margin-top:8px;margin-bottom:0">
+            <b>사용법:</b> ① 우측에서 클라이언트 헤더 행을 클릭 ② 좌측의 우리 필드를 클릭 → 그 자리에 값 연결.
+          </div>
+        </article>
+
+        <!-- Client headers -->
+        <article class="card client-pane">
+          <div class="pane-head">
+            <h3>📑 Client Headers (최종 출력 순서) <span id="clRowCountTxt" class="badge gray"></span></h3>
+            <div class="meta">행 클릭 후 ← 좌측 필드 클릭으로 매핑</div>
+          </div>
+          <div class="toolbar">
+            <button class="btn sm" id="btnClMoveTop">⤒ Top</button>
+            <button class="btn sm" id="btnClMoveUp">▲ Up</button>
+            <button class="btn sm" id="btnClMoveDown">▼ Down</button>
+            <button class="btn sm" id="btnClMoveBottom">⤓ Bottom</button>
+            <span style="flex:1"></span>
+            <button class="btn sm danger" id="btnClRemoveRow">🗑 Remove row</button>
+          </div>
+          <div id="clRowsWrap">
+            <div class="empty-target-box" id="clEmptyRows">
+              위에 클라이언트 헤더를 붙여넣고 <b>Parse</b>를 누르면 여기에 표시됩니다.
+            </div>
+            <div class="listbox hidden" id="clRowsList"></div>
+          </div>
+          <div class="warning-box hidden" id="clWarnUnmapped" style="margin-top:8px">
+            <span>⚠️ <b>아직 매핑 안 된 클라이언트 헤더 N개</b> — 이 헤더는 출력엔 포함되지만 데이터 값은 비어서 나갑니다.</span>
+          </div>
+        </article>
+      </div>
+
+      <!-- Client preview -->
+      <article class="card" style="margin-top:18px">
+        <div class="card-h">
+          <h2>🔎 Preview — Client Header Order</h2>
+          <span class="meta">첫 4개 데이터 행 · <span id="clPreviewBadge"></span></span>
+        </div>
+        <div class="preview-note" id="clPreviewNote">클라이언트 헤더 목록을 붙여넣고 필드를 연결하면 이곳에서 출력을 미리 볼 수 있습니다.</div>
+        <div class="table-wrap hidden" id="clPreviewWrap">
+          <table id="clPreviewTable">
+            <thead id="clPreviewHead"></thead>
+            <tbody id="clPreviewBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <!-- Client save -->
+      <article class="card" style="margin-top:18px">
+        <div class="card-h">
+          <h2>💾 Save — Client Header Order</h2>
+          <span class="meta" id="clSaveFormatInfo"></span>
+        </div>
+        <div class="warning-box" style="margin-top:0;margin-bottom:12px">
+          저장된 파일의 헤더 행은 <b>위 클라이언트 헤더 순서 그대로</b>이며, 매핑된 우리 필드의 값이 그 위치로 배치됩니다. 매핑 없는 곳은 빈 값입니다.
+        </div>
+        <div class="save-area" style="margin-top:0">
+          <div class="grow">
+            <label style="font-size:12px;color:var(--muted)">Output file name</label>
+            <input type="text" id="clOutName" value="client_mapped.dat" spellcheck="false">
+          </div>
+          <button class="btn-big" id="btnClSave">⬇ Download Client File</button>
+        </div>
+      </article>
+      </div><!-- /clGridArea -->
+    </div><!-- /clientArea -->
+  </section>
+
+  <section class="card hidden" id="issuesCard">
+    <h2 style="font-size:15px">📌 Parsing Notes</h2>
+    <div id="issuesList" style="font-size:13px;margin-top:7px;color:var(--muted)"></div>
+  </section>
+
+  <p class="light-txt" style="font-size:12px;text-align:center;padding:4px 0 26px">
+    eDiscovery load file tool — everything runs locally in your browser; no file is ever uploaded or transmitted.
+  </p>
+</main>
+
+<div id="busy"><div class="busybox"><div class="spinner"></div><div><div id="busyTitle" style="font-weight:650;font-size:14px;margin-bottom:3px">Working…</div><div id="busyLabel"></div></div></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+/* =============================================================
+   DAT Field Reorder — multi-format load file reorder/removal
+   BIG-FILE STREAMING EDITION
+
+   Formats:   þ(0xFE) · Concordance ^|^ · CSV · Tab · Pipe
+   Encodings: UTF-8(±BOM) / UTF-16 LE·BE(+BOM) / Windows-1252
+   Line ends: CRLF / LF / CR
+
+   Architecture (scale: millions of rows × hundreds of columns,
+   file sizes of many GB):
+
+   The source `File` object is the only persistent copy.  The whole
+   file is NEVER decoded into one string and records are NEVER kept
+   in a giant array.
+
+     LOAD  — one streaming scan. Records are extracted one at a
+             time, decoded & re-encoded per chunk, then discarded.
+             Only the header names + first 4 preview rows + a small
+             count histogram survive in memory.  Peak memory = one
+             record buffer + one I/O chunk.
+
+     SAVE  — a second streaming scan of the original File.  Each
+             record is split, reordered, re-composed and re-encoded
+             as bytes, then written straight to the destination:
+               • Chromium  → File System Access writable stream
+                            (constant memory regardless of file size)
+               • Fallback  → Blob chunk list → single download
+
+   Surrogate hygiene: lone (unpaired) UTF-16 surrogates found in
+   field values are replaced with U+FFFD on every write path, so an
+   output file can never carry the "lone leading surrogate" that
+   makes JSON APIs (e.g. DeepSeek) reject it.
+   ============================================================= */
+
+/* ---------------- Small helpers ---------------- */
+const FE = '\u00FE';
+
+function countChar(s, c){
+  let n=0;
+  for(let i=0;i<s.length;i++){ if(s[i]===c) n++; }
+  return n;
+}
+function firstLineOf(text){
+  const m = text.match(/[^\r\n]*/);
+  return m ? m[0] : text;
+}
+
+/* Replace lone surrogates (no valid pair) with U+FFFD.
+   Lone high/low surrogate otherwise corrupts JSON.stringify and
+   makes strict server-side JSON parsers return 400. */
+function sanitizeScalarValue(s){
+  if(s === null || s === undefined) return '';
+  s = String(s);
+  let hasLone = false;
+  for(let i=0;i<s.length;i++){
+    const c = s.charCodeAt(i);
+    if(c >= 0xD800 && c <= 0xDFFF){
+      if(c <= 0xDBFF){
+        const n = s.charCodeAt(i+1);
+        if(!(n >= 0xDC00 && n <= 0xDFFF)){ hasLone = true; break; }
+        i++; // valid pair
+      } else if(c >= 0xDC00){
+        hasLone = true; break; // lone low surrogate (must be preceded by high)
+      }
+    }
+  }
+  if(!hasLone) return s;
+  let out = '';
+  for(let i=0;i<s.length;i++){
+    const c = s.charCodeAt(i);
+    if(c >= 0xD800 && c <= 0xDBFF){
+      const n = s.charCodeAt(i+1);
+      if(n >= 0xDC00 && n <= 0xDFFF){ out += s[i] + s[i+1]; i++; }
+      else out += '\uFFFD';
+    } else if(c >= 0xDC00 && c <= 0xDFFF){
+      out += '\uFFFD';
+    } else {
+      out += s[i];
+    }
+  }
+  return out;
+}
+
+/* Format dialect field splitters / composers (raw-level parse is
+   handled by RecordStreamer below; field-level parsing is shared
+   with the ORIGINAL field semantics). */
+function feSplit(rec){
+  const parts = rec.split(FE);
+  const out = [];
+  for(let i=1;i<parts.length;i+=2) out.push(parts[i]);
+  return out;
+}
+function feCompose(fields){ return fields.map(f => FE + f + FE).join(''); }
+
+function ccSplit(rec){
+  const out = [];
+  const n = rec.length;
+  let i = 0;
+  while(i < n){
+    if(rec[i] !== '^'){ i++; continue; }
+    i++;
+    let s = i;
+    let partial = '';
+    let closed = false;
+    while(i < n){
+      if(rec[i] === '^'){
+        if(rec[i+1] === '^'){ partial += rec.slice(s, i) + '^'; i += 2; s = i; continue; }
+        partial += rec.slice(s, i);
+        i++;
+        closed = true;
+        break;
+      }
+      i++;
+    }
+    if(!closed) partial += rec.slice(s);
+    out.push(partial);
+    if(i < n && rec[i] === '|') i++;
+  }
+  return out;
+}
+function escapeCaret(v){ return String(v).replace(/\^/g, '^^'); }
+function ccCompose(fields){ return fields.map(f => '^' + escapeCaret(f) + '^').join('|'); }
+
+function delimitedSplit(rec, delim){
+  const out = [];
+  let cur = '';
+  let inQ = false;
+  const n = rec.length;
+  for(let i=0;i<n;i++){
+    const ch = rec[i];
+    if(inQ){
+      if(ch === '"'){
+        if(rec[i+1] === '"'){ cur += '"'; i++; }
+        else inQ = false;
+      } else cur += ch;
+    } else {
+      if(ch === '"') inQ = true;
+      else if(ch === delim){ out.push(cur); cur = ''; }
+      else if(ch === '\r' || ch === '\n'){ /* embedded newline outside quotes removed */ }
+      else cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+function escapeCsvQuote(v){ return String(v).replace(/"/g, '""'); }
+function csvCompose(fields){ return fields.map(f => '"' + escapeCsvQuote(f) + '"').join(','); }
+function tabCompose(fields){ return fields.join('\t'); }
+function pipeCompose(fields){ return fields.join('|'); }
+function csvSplit(rec){ return delimitedSplit(rec, ','); }
+function tabSplit(rec){ return rec.split('\t'); }
+function pipeSplit(rec){ return rec.split('|'); }
+
+/* Cap for a single logical record we keep buffered during a
+   streaming scan.  Real DAT records with e-discovery extracted text
+   occasionally reach tens of MB; anything larger suggests corruption
+   or an extremely pathological cell, so we abort cleanly instead of
+   silently exhausting memory. */
+const MAX_RECORD_BYTES = 768 * 1024 * 1024;
+
+const FORMATS = {
+  fe: {
+    key:'fe', label:'þ 0xFE', hint:'þvalueþþvalueþ',
+    quote: FE, skipDoubled:false,
+    split: feSplit, compose: feCompose
+  },
+  cc: {
+    key:'cc', label:'Concordance ^|^', hint:'^value^|^value^',
+    quote:'^', skipDoubled:false,
+    split: ccSplit, compose: ccCompose
+  },
+  csv: {
+    key:'csv', label:'CSV (",")', hint:'"value","value"',
+    quote:'"', skipDoubled:true,
+    split: csvSplit, compose: csvCompose
+  },
+  tsv: {
+    key:'tsv', label:'Tab-delimited', hint:'value\tvalue',
+    quote:null, skipDoubled:false,
+    split: tabSplit, compose: tabCompose
+  },
+  pipe: {
+    key:'pipe', label:'Pipe (|)', hint:'value|value',
+    quote:null, skipDoubled:false,
+    split: pipeSplit, compose: pipeCompose
+  }
+};
+
+/* Logical record scanner — chunked, stateful, streaming.
+   Mirror of the old whole-string quoteScanRecords / plainLineRecords,
+   but pushed decoded text chunk by chunk.  Only ONE unterminated
+   record is ever held (this.pending). */
+class RecordStreamer {
+  constructor(fmtKey, onRecord){
+    this.fmtKey = fmtKey;
+    const d = FORMATS[fmtKey];
+    this.q = d.quote;
+    this.skip = d.skipDoubled;
+    this.onRecord = onRecord;
+    this.open = false;
+    this.pending = '';
+    this.recIdx = 0;
+  }
+  async _emit(rec){
+    await this.onRecord(rec, this.recIdx++);
+  }
+  async push(text){
+    if(!text) return;
+    if(this.q === null){
+      await this._pushPlain(text);
+    } else {
+      await this._pushQuoted(text);
+    }
+  }
+  async _pushPlain(text){
+    let b = this.pending + text;
+    let start = 0;
+    let i = 0;
+    const n = b.length;
+    while(i < n){
+      const ch = b[i];
+      if(ch === '\n' || ch === '\r'){
+        const rec = b.slice(start, i);
+        if(rec.trim() !== '') await this._emit(rec);
+        if(ch === '\r' && b[i+1] === '\n') i++;
+        i++;
+        start = i;
+        if(b.length - start > MAX_RECORD_BYTES){
+          throw new Error('Single data line exceeds the maximum supported record size.');
+        }
+      } else i++;
+    }
+    this.pending = b.slice(start);
+  }
+  async _pushQuoted(text){
+    let b = this.pending + text;
+    // Only the tail that has not yet reached a record boundary is re-scanned,
+    // so amortized work stays O(chars) — the same as the previous whole-file
+    // scanner. Every emission is awaited so async consumers (e.g. streaming
+    // disk writes) stay strictly ordered and error-safe.
+    const q = this.q;
+    const skip = this.skip;
+    let open = this.open;
+    let start = 0;
+    let i = 0;
+    const n = b.length;
+    while(i < n){
+      const ch = b[i];
+      if(ch === q){
+        if(skip && ch === '"' && b[i+1] === '"'){ i += 2; continue; }
+        open = !open;
+        i++;
+        continue;
+      }
+      if((ch === '\r' || ch === '\n') && !open){
+        const rec = b.slice(start, i);
+        if(rec.trim() !== '' && rec.indexOf(q) >= 0) await this._emit(rec);
+        if(ch === '\r' && b[i+1] === '\n') i++;
+        i++;
+        start = i;
+        if(b.length - start > MAX_RECORD_BYTES){
+          throw new Error('A single quoted record exceeds the maximum supported size.');
+        }
+      } else i++;
+    }
+    if(start === 0 && b.length > MAX_RECORD_BYTES){
+      throw new Error('A single quoted record exceeds the maximum supported size.');
+    }
+    this.pending = b.slice(start);
+    this.open = open;
+  }
+  async flush(){
+    const p = this.pending;
+    if(!p) return;
+    this.pending = '';
+    if(this.q === null){
+      if(p.trim() !== '') await this._emit(p);
+    } else {
+      if(p.trim() !== '' && p.indexOf(this.q) >= 0) await this._emit(p);
+    }
+  }
+}
+
+/* =============================================================
+   Encoding detection / decoding
+   ============================================================= */
+const CP1252_MAP = {
+  '\u20AC':0x80,'\u201A':0x82,'\u0192':0x83,'\u201E':0x84,'\u2026':0x85,
+  '\u2020':0x86,'\u2021':0x87,'\u02C6':0x88,'\u2030':0x89,'\u0160':0x8A,
+  '\u2039':0x8B,'\u0152':0x8C,'\u017D':0x8E,'\u2018':0x91,'\u2019':0x92,
+  '\u201C':0x93,'\u201D':0x94,'\u2022':0x95,'\u2013':0x96,'\u2014':0x97,
+  '\u02DC':0x98,'\u2122':0x99,'\u0161':0x9A,'\u203A':0x9B,'\u0153':0x9C,
+  '\u017E':0x9E,'\u0178':0x9F
+};
+
+function decodeBuf(d, omitBOM){
+  const slice = d.slice(omitBOM);
+  const decoderName = { 'utf-8':'utf-8','utf-16le':'utf-16le','utf-16be':'utf-16be','cp1252':'windows-1252' }[d.kind];
+  return new TextDecoder(decoderName).decode(slice);
+}
+
+/* Read up to n bytes from the file and detect:
+   BOM, UTF-16 null-byte heuristics, and Windows-1252 fallback.
+   Returns meta + a decoded text sample (used for format detection). */
+async function sniffMeta(file){
+  const SNIFF = Math.min(file.size, 4 * 1024 * 1024);
+  const head = new DataView(await file.slice(0, SNIFF).arrayBuffer());
+  const n = head.byteLength;
+  const d = new Uint8Array(head.buffer, head.byteOffset, n);
+
+  let hasBOM = false;
+  let kind = 'utf-8';
+  let bomBytes = 0;
+  if(n >= 3 && d[0]===0xEF && d[1]===0xBB && d[2]===0xBF){
+    hasBOM = true; kind='utf-8'; bomBytes=3;
+  } else if(n >= 2 && d[0]===0xFF && d[1]===0xFE){
+    hasBOM = true; kind='utf-16le'; bomBytes=2;
+  } else if(n >= 2 && d[0]===0xFE && d[1]===0xFF){
+    hasBOM = true; kind='utf-16be'; bomBytes=2;
+  } else if(n >= 2){
+    let evenZeros=0, oddZeros=0;
+    for(let i=0;i<n;i++){
+      if(d[i] === 0) (i % 2 === 0 ? evenZeros++ : oddZeros++);
+    }
+    const eR = evenZeros / n, oR = oddZeros / n;
+    if(eR > .12 && oR < .01) kind = 'utf-16be';
+    else if(oR > .12 && eR < .01) kind = 'utf-16le';
+  }
+
+  let sampleText;
+  let effectiveKind = kind;
+  try {
+    const decoderName = { 'utf-8':'utf-8','utf-16le':'utf-16le','utf-16be':'utf-16be' }[kind];
+    sampleText = new TextDecoder(decoderName).decode(d.slice(bomBytes));
+  } catch(err){
+    sampleText = new TextDecoder('utf-8').decode(d.slice(bomBytes));
+    kind = 'utf-8'; effectiveKind = 'utf-8'; bomBytes = (bomBytes===3?3:0);
+  }
+
+  // Windows-1252 fallback when a BOM-less UTF-8 decode is full of U+FFFD
+  if(effectiveKind === 'utf-8' && !hasBOM){
+    let bad = 0;
+    const lim = Math.min(sampleText.length, 200000);
+    for(let i=0;i<lim;i++){ if(sampleText.charCodeAt(i) === 0xFFFD) bad++; }
+    if(bad > 0){
+      const cp = new TextDecoder('windows-1252').decode(d.slice(bomBytes));
+      if(cp.length && bad/lim > (1/80)){
+        sampleText = cp;
+        kind = 'cp1252';
+      }
+    }
+  }
+
+  const labels = {
+    'utf-8':'UTF-8', 'utf-16le':'UTF-16 (LE)', 'utf-16be':'UTF-16 (BE)', 'cp1252':'Windows-1252 (CP1252)'
+  };
+  return { kind, label: labels[kind] || kind, hasBOM, bomBytes, sampleText };
+}
+
+function decoderNameFor(kind){
+  return { 'utf-8':'utf-8','utf-16le':'utf-16le','utf-16be':'utf-16be','cp1252':'windows-1252' }[kind];
+}
+
+/* Streaming decoder wrapper.  Handles partial multi-byte sequences
+   and keeps UTF-16 chunk inputs even by carrying one byte. */
+function createStreamDecoder(meta){
+  const name = decoderNameFor(meta.kind);
+  const dec = new TextDecoder(name);
+  let carry = null; // single odd byte carried for UTF-16 alignment
+  const isUtf16 = meta.kind === 'utf-16le' || meta.kind === 'utf-16be';
+  return {
+    decode(bytes){
+      let fed = bytes;
+      if(isUtf16 && bytes.length % 2 === 1){
+        // keep the odd trailing byte until the next chunk arrives
+        fed = bytes.subarray(0, bytes.length - 1);
+        carry = bytes[bytes.length - 1];
+      }
+      return dec.decode(fed, { stream: true });
+    },
+    finish(){
+      let out = '';
+      if(carry !== null){
+        out += dec.decode(Uint8Array.of(carry), { stream: false });
+        carry = null;
+      } else {
+        out += dec.decode();
+      }
+      return out;
+    }
+  };
+}
+
+/* =============================================================
+   Byte encoding (per record, so output never needs full memory)
+   ============================================================= */
+function encodeCp1252Chunk(text){
+  const bytes = [];
+  for(let i=0;i<text.length;i++){
+    const cp = text.charCodeAt(i);
+    if(cp <= 0x7F) bytes.push(cp);
+    else if(cp <= 0xFF) bytes.push(cp);
+    else if(CP1252_MAP[text[i]] !== undefined) bytes.push(CP1252_MAP[text[i]]);
+    else bytes.push(0x3F);
+  }
+  return Uint8Array.from(bytes);
+}
+function textToBytes(meta, text){
+  if(meta.kind === 'cp1252') return encodeCp1252Chunk(text);
+  if(meta.kind === 'utf-16le'){
+    const out = new Uint8Array(text.length * 2);
+    for(let i=0;i<text.length;i++){
+      const code = text.charCodeAt(i);
+      out[i*2] = code & 0xFF;
+      out[i*2+1] = (code >> 8) & 0xFF;
+    }
+    return out;
+  }
+  if(meta.kind === 'utf-16be'){
+    const out = new Uint8Array(text.length * 2);
+    for(let i=0;i<text.length;i++){
+      const code = text.charCodeAt(i);
+      out[i*2] = (code >> 8) & 0xFF;
+      out[i*2+1] = code & 0xFF;
+    }
+    return out;
+  }
+  return new TextEncoder().encode(text); // utf-8
+}
+function metaBomBytes(meta){
+  if(!meta.hasBOM) return new Uint8Array(0);
+  if(meta.kind === 'utf-8') return Uint8Array.of(0xEF,0xBB,0xBF);
+  if(meta.kind === 'utf-16be') return Uint8Array.of(0xFE,0xFF);
+  if(meta.kind === 'utf-16le') return Uint8Array.of(0xFF,0xFE);
+  return Uint8Array.of(0xEF,0xBB,0xBF);
+}
+
+/* =============================================================
+   EOL detection from raw decoded text
+   ============================================================= */
+function detectEol(text){
+  const crlf = (text.match(/\r\n/g) || []).length;
+  const lfOnly = (text.match(/(?<!\r)\n/g) || []).length;
+  const crOnly = (text.match(/\r(?!\n)/g) || []).length;
+  if(crlf > 0 && lfOnly === 0 && crOnly === 0) return {eol:'\r\n', label:'CRLF (Windows)'};
+  if(lfOnly > 0 && crlf === 0 && crOnly === 0) return {eol:'\n', label:'LF (Unix)'};
+  if(crOnly > 0 && crlf === 0 && lfOnly === 0) return {eol:'\r', label:'CR (Mac)'};
+  return {eol:'\r\n', label:'CRLF (Windows)'};
+}
+
+/* Format heuristic — same rules as before, driven by decoded sample */
+function detectFormat(text){
+  const head = firstLineOf(text);
+  const feCount = countChar(head, FE);
+  if(feCount >= 4) return 'fe';
+  const caret = countChar(head, '^');
+  const headTrim = head.trim();
+  if(caret >= 2 && headTrim.startsWith('^') && head.includes('^|')) return 'cc';
+  const pipe = countChar(head, '|');
+  const q = head.indexOf('"');
+  if(q === 0 && head.includes('","')) return 'csv';
+  if(head.includes('\t')) return 'tsv';
+  if(pipe >= 2) return 'pipe';
+  if(q >= 0) return 'csv';
+  if(feCount > 0) return 'fe';
+  if(caret > 0) return 'cc';
+  return 'pipe';
+}
+
+/* =============================================================
+   Streaming file scan
+   ============================================================= */
+const CHUNK_BYTES = 8 * 1024 * 1024; // 8 MiB
+
+/* Main loop: read file from byte `start` (usually bomBytes),
+   decode chunk-by-chunk with the stream decoder, and feed the
+   resulting text into a RecordStreamer.
+   onRecord(rec) may be async-safe: we await callbacks.
+   onProgress({read,total}) is throttled inside. */
+async function scanFile(file, meta, fmtKey, onRecord, onProgress){
+  const dec = createStreamDecoder(meta);
+  const streamer = new RecordStreamer(fmtKey, onRecord);
+  const total = file.size;
+  const utf16 = meta.kind === 'utf-16le' || meta.kind === 'utf-16be';
+  let offset = meta.bomBytes;
+  let lastProgressPct = -1;
+
+  while(offset < total){
+    let end = Math.min(offset + CHUNK_BYTES, total);
+    let bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
+
+    // A UTF-16 code unit must never be split across chunks. CHUNK_BYTES is
+    // even, so this only matters for an odd tail at EOF; when it happens,
+    // absorb one more byte so decoding stays aligned with unit boundaries.
+    if(utf16 && bytes.length % 2 === 1 && end < total){
+      const extra = new Uint8Array(await file.slice(end, end + 1).arrayBuffer());
+      const merged = new Uint8Array(bytes.length + 1);
+      merged.set(bytes); merged.set(extra, bytes.length);
+      bytes = merged;
+    }
+
+    const text = dec.decode(bytes);
+    await streamer.push(text);
+
+    offset += bytes.length; // == end, plus one more when an extra byte was absorbed
+    const pct = total ? Math.floor(offset * 100 / total) : 100;
+    if(pct !== lastProgressPct){
+      lastProgressPct = pct;
+      if(onProgress) await onProgress({ read: offset, total, pct });
+    }
+  }
+  const tail = dec.finish();
+  if(tail) await streamer.push(tail);
+  await streamer.flush();
+}
+
+/* =============================================================
+   Browser-global state
+   ============================================================= */
+const state = {
+  file: null,            // original File — the only full copy, never stringified
+  fileName: null,
+  sizeBytes: 0,
+  detected: null,        // {kind,label,hasBOM,bomBytes}
+  fmtKey: null,
+  manualFmt: '',
+  eol: '\r\n',
+  eolLabel: 'CRLF (Windows)',
+  origHadTrailingEOL: true,
+  headerNames: [],
+  previews: [],          // first 4 data rows, raw record text
+  parseInfo: {
+    headerRaw: null,
+    dataRecords: 0,
+    rowFieldCounts: null,
+    multiline: 0,
+    mismatchedRows: 0
+  },
+  orderTarget: [],
+  selection: null,
+  parsing: false
+};
+
+/* =============================================================
+   Full streaming parse (pass 1) — builds header / previews / stats
+   ============================================================= */
+async function buildFileIndex(file, meta, fmtKey, onProgress){
+  const rowFieldCounts = new Map();
+  let dataRecords = 0;
+  let previews = [];
+  let headerDone = false;
+  let headerRaw = null;
+  let headerNames = null;
+  let multiline = 0;
+
+  const handle = (rec) => {
+    if(!headerDone){
+      headerDone = true;
+      headerRaw = rec;
+      const fields = FORMATS[fmtKey].split(rec).map(s => sanitizeScalarValue(s.trim()));
+      headerNames = fields;
+      return;
+    }
+    let c = 0;
+    try { c = FORMATS[fmtKey].split(rec).length; } catch(e){ c = 0; }
+    rowFieldCounts.set(c, (rowFieldCounts.get(c)||0) + 1);
+    if(rec.indexOf('\n') >= 0 || rec.indexOf('\r') >= 0) multiline++;
+    dataRecords++;
+    if(previews.length < 4) previews.push(rec);
+  };
+
+  await scanFile(file, meta, fmtKey, handle, onProgress);
+
+  if(!headerDone || !headerNames || headerNames.filter(n=>n.trim()!=='').length === 0){
+    return null;
+  }
+
+  const headerCount = headerNames.length;
+  let mismatched = 0;
+  rowFieldCounts.forEach((cnt,c)=>{ if(c !== headerCount) mismatched += cnt; });
+
+  return {
+    headerRaw,
+    headerNames,
+    previews,
+    dataRecords,
+    rowFieldCounts,
+    multiline,
+    mismatched
+  };
+}
+
+/* =============================================================
+   UI elements & small rendering helpers
+   ============================================================= */
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+
+const fmtEl = $('#fmtBar');
+const fmtBadge = $('#fmtBadge');
+const fmtOverride = $('#fmtOverride');
+const btnReParse = $('#btnReParse');
+const fileSummary = $('#fileSummary');
+const srcSearch = $('#srcSearch');
+const srcList = $('#sourceList');
+const tgtList = $('#targetList');
+const emptyTgt = $('#emptyTarget');
+const previewWrap = $('#previewWrap');
+const previewThead = $('#previewHead');
+const previewTbody = $('#previewBody');
+const previewNote = $('#previewNote');
+const previewBadge = $('#previewBadge');
+const busyEl = $('#busy');
+const busyTitleEl = $('#busyTitle');
+const busyLabelEl = $('#busyLabel');
+const toastEl = $('#toast');
+let toastTimer = null;
+let loadToken = 0;
+
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>toastEl.classList.remove('show'), 3800);
+}
+function setBusy(title, label){
+  if(title !== undefined) busyTitleEl.textContent = title;
+  if(label !== undefined) busyLabelEl.textContent = label;
+  busyEl.classList.add('show');
+}
+function clearBusy(){
+  busyEl.classList.remove('show');
+  busyLabelEl.textContent = '';
+}
+
+function fmtInfo(){ return FORMATS[state.fmtKey]; }
+
+/* Loader entry -------------------------------------------------- */
+async function loadFile(file){
+  const token = ++loadToken;
+  setBusy('Analyzing file…', 'Detecting encoding & format…');
+  try{
+    const meta = await sniffMeta(file);
+    let fmtKey = (state.manualFmt && FORMATS[state.manualFmt]) ? state.manualFmt : detectFormat(meta.sampleText);
+    if(!FORMATS[fmtKey]) fmtKey = 'pipe';
+
+    // detect EOL + trailing-EOL from a small prefix & suffix scan
+    let eolInfo = null;
+    const eolProbe = async () => {
+      const headText = meta.sampleText;
+      if(headText){
+        const d = detectEol(headText.slice(0, 1 << 20));
+        eolInfo = d;
+      } else {
+        eolInfo = detectEol('');
+      }
+      // trailing EOL — probe the last 64 KB
+      let trailing = '';
+      const sz = file.size;
+      try {
+        if(sz > 0){
+          const tailStart = Math.max(0, meta.bomBytes, sz - 65536);
+          const tailBuf = new Uint8Array(await file.slice(tailStart, sz).arrayBuffer());
+          if(tailBuf.length){
+            trailing += new TextDecoder(decoderNameFor(meta.kind)).decode(tailBuf);
+          }
+        }
+      } catch(e){ /* ignore */ }
+      return { ...eolInfo, origHadTrailingEOL: /[\r\n]$/.test(trailing) };
+    };
+    const eolProbeResult = await eolProbe();
+
+    // full streaming pass
+    const parsed = await buildFileIndex(file, meta, fmtKey, ({pct}) => {
+      if(pct !== null) setBusy('Analyzing file…', `${pct}% · ${(file.size/1048576).toFixed(1)} MB scanned`);
+    });
+    if(!parsed){
+      toast('⚠️ No parseable header found. Try another format with the override.');
+      clearBusy();
+      return;
+    }
+    if(token !== loadToken){
+      // A newer file was opened while this scan was running — discard this one.
+      return;
+    }
+
+    state.file = file;
+    state.fileName = file.name || 'untitled.dat';
+    state.sizeBytes = file.size;
+    state.detected = meta;
+    state.fmtKey = fmtKey;
+    state.eol = eolProbeResult.eol || '\r\n';
+    state.eolLabel = eolProbeResult.label || 'CRLF (Windows)';
+    state.origHadTrailingEOL = eolProbeResult.origHadTrailingEOL;
+    state.headerNames = parsed.headerNames;
+    state.previews = parsed.previews;
+    state.parseInfo = {
+      headerRaw: parsed.headerRaw,
+      dataRecords: parsed.dataRecords,
+      rowFieldCounts: parsed.rowFieldCounts,
+      multiline: parsed.multiline,
+      mismatchedRows: parsed.mismatched
+    };
+    state.orderTarget = parsed.headerNames.map((_,i)=>i);
+    state.selection = null;
+
+    fmtEl.classList.remove('hidden');
+    fmtBadge.textContent = `${FORMATS[fmtKey].label}  — ${FORMATS[fmtKey].hint}`;
+
+    renderSummary();
+    showWorkspace();
+    showIssues();
+    if(typeof clResetUi === 'function') clResetUi();
+    toast(`✅ ${file.name} — ${FORMATS[fmtKey].label} · ${parsed.dataRecords.toLocaleString()} data record${parsed.dataRecords===1?'':'s'}`);
+  } catch(err){
+    console.error(err);
+    toast('❌ Could not process the file: ' + (err && err.message ? err.message : 'unknown error'));
+  } finally {
+    clearBusy();
+  }
+}
+
+/* =============================================================
+   UI rendering — unchanged behavior, memory-constant data
+   ============================================================= */
+function fmtBytesLabel(n){
+  if(n < 1024) return n + ' B';
+  const units = ['KB','MB','GB','TB'];
+  let v = n, u = -1;
+  do { v/=1024; u++; } while(v>=1024 && u<units.length-1);
+  return v.toFixed(v>=10||u===0?0:1) + ' ' + units[u];
+}
+
+function renderSummary(){
+  const s = state;
+  const cnt = s.parseInfo.rowFieldCounts.get(s.headerNames.length) || 0;
+  const mismatch = s.parseInfo.mismatchedRows;
+  const baseName = s.fileName;
+  const extRemoved = baseName.replace(/\.(dat|txt|csv|opt|load)$/i,'') || 'reordered';
+  $('#outName').value = extRemoved + '_reordered.dat';
+
+  $('#saveFormatInfo').textContent = `${FORMATS[state.fmtKey].label} · ${s.detected.label} · ${s.eolLabel}`;
+
+  fileSummary.innerHTML = '';
+  const tiles = [
+    ['📁 File', baseName],
+    ['⚖ File size', fmtBytesLabel(s.sizeBytes)],
+    ['🧾 Encoding', s.detected.label, `BOM ${s.detected.hasBOM ? 'present' : 'none'}`],
+    ['📐 Load Format', FORMATS[state.fmtKey].label, FORMATS[state.fmtKey].hint],
+    ['#️⃣ Source columns', String(s.headerNames.length)],
+    ['🧮 Data records', s.parseInfo.dataRecords.toLocaleString()],
+    ['📐 Rows matching header', cnt.toLocaleString(), mismatch>0 ? `${mismatch.toLocaleString()} differ` : 'all match'],
+  ];
+  tiles.forEach(([k,v,sub])=>{
+    const el = document.createElement('div');
+    el.className = 'stat-tile';
+    const kEl = document.createElement('div'); kEl.className='k'; kEl.textContent=k;
+    const vEl = document.createElement('div'); vEl.className='v'; vEl.textContent=v;
+    if(sub){ const sm = document.createElement('small'); sm.textContent = ' · ' + sub; vEl.appendChild(sm); }
+    el.appendChild(kEl); el.appendChild(vEl);
+    fileSummary.appendChild(el);
+  });
+  fileSummary.classList.remove('hidden');
+}
+
+function showWorkspace(){
+  $('#workspace').classList.remove('hidden');
+  updateBadges();
+  renderSourceList();
+  renderTargetList();
+  renderPreview();
+}
+function updateBadges(){
+  const removed = state.headerNames.length - state.orderTarget.length;
+  $('#srcCountTxt').textContent = `${removed} available`;
+  $('#tgtCountTxt').textContent = removed > 0
+    ? `${state.orderTarget.length} kept`
+    : `${state.orderTarget.length} of ${state.headerNames.length}`;
+}
+
+function renderSourceList(){
+  const q = (srcSearch.value || '').trim().toLowerCase();
+  const inTarget = new Set(state.orderTarget);
+  srcList.innerHTML = '';
+  const rows = [];
+  state.headerNames.forEach((name,i)=>{
+    if(inTarget.has(i)) return;
+    if(q && !name.toLowerCase().includes(q)) return;
+    rows.push({name,i});
+  });
+  if(rows.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'field-row empty';
+    empty.textContent = q ? 'No search results' : 'All fields are already in the new order.';
+    srcList.appendChild(empty);
+    return;
+  }
+  rows.forEach(({name,i})=>{
+    const row = document.createElement('div');
+    row.className = 'field-row';
+    row.dataset.idx = String(i);
+    const num = document.createElement('span'); num.className='idx'; num.textContent = String(i+1);
+    const nm = document.createElement('span'); nm.className='nm'; nm.textContent = name;
+    nm.title = name;
+    const add = document.createElement('span'); add.className='add-ic'; add.textContent='＋';
+    row.append(num, nm, add);
+    row.addEventListener('click', ()=>{
+      addFieldByIdx(i);
+      row.classList.add('drag-placeholder');
+      setTimeout(()=>row.classList.remove('drag-placeholder'),260);
+    });
+    srcList.appendChild(row);
+  });
+}
+
+function updateWorkspaceAfterChange(){
+  if(state.selection !== null && state.selection >= state.orderTarget.length){
+    state.selection = null;
+  }
+  updateBadges();
+  renderSourceList();
+  renderTargetList();
+  renderPreview();
+}
+function addFieldByIdx(i){
+  if(state.orderTarget.includes(i)) return;
+  state.orderTarget.push(i);
+  updateWorkspaceAfterChange();
+  toast(`Added: ${state.headerNames[i]}`);
+}
+function removeFieldAt(pos){
+  const name = state.headerNames[state.orderTarget[pos]];
+  state.orderTarget.splice(pos,1);
+  updateWorkspaceAfterChange();
+  toast(`Removed from output: ${name}`);
+}
+function moveTarget(from,to){
+  if(from === to) return;
+  const arr = state.orderTarget;
+  const [item] = arr.splice(from,1);
+  arr.splice(to,0,item);
+}
+function moveDelta(pos, delta){
+  const to = Math.max(0, Math.min(state.orderTarget.length-1, pos+delta));
+  moveTarget(pos,to);
+  updateWorkspaceAfterChange();
+}
+function moveTop(pos){ moveDelta(pos, -pos); }
+function moveBottom(pos){ moveDelta(pos, state.orderTarget.length-1-pos); }
+
+let dragFromIdx = null;
+
+function renderTargetList(){
+  const arr = state.orderTarget;
+  const hasAny = arr.length > 0;
+  emptyTgt.classList.toggle('hidden', hasAny);
+  tgtList.classList.toggle('hidden', !hasAny);
+
+  const removed = state.headerNames.filter((_,i)=>!arr.includes(i));
+  const rw = $('#removedWarn');
+  if(removed.length > 0){
+    rw.classList.remove('hidden');
+    let span = rw.querySelector('.removed-names');
+    if(!span){
+      span = document.createElement('span');
+      span.className='removed-names';
+      rw.appendChild(span);
+    }
+    span.textContent = removed.join(', ');
+  } else {
+    rw.classList.add('hidden');
+  }
+
+  tgtList.innerHTML = '';
+  if(!hasAny) return;
+
+  arr.forEach((origIdx,pos)=>{
+    const name = state.headerNames[origIdx];
+    const row = document.createElement('div');
+    row.className = 'field-row target-item';
+    row.draggable = true;
+    row.dataset.pos = String(pos);
+
+    const num = document.createElement('span'); num.className='idx'; num.textContent = String(pos+1);
+    const nm = document.createElement('span'); nm.className='nm'; nm.textContent = name;
+    nm.title = `Source column ${origIdx+1} → output column ${pos+1}`;
+
+    const btns = document.createElement('div');
+    btns.className='mini-btns';
+    const mk = (label, fn, tip, cls)=>{
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.title = tip || '';
+      b.type = 'button';
+      if(cls) b.className = cls;
+      b.addEventListener('click', e=>{ e.stopPropagation(); fn(); });
+      return b;
+    };
+    btns.append(
+      mk('⤒', ()=>moveTop(pos), 'Move to top'),
+      mk('▲', ()=>moveDelta(pos,-1), 'Move up'),
+      mk('▼', ()=>moveDelta(pos,1), 'Move down'),
+      mk('⤓', ()=>moveBottom(pos), 'Move to bottom'),
+      mk('🗑', ()=>removeFieldAt(pos), 'Remove this field from output', 'del')
+    );
+
+    row.addEventListener('click', ()=>{
+      state.selection = pos;
+      $$('#targetList .field-row').forEach((r,i)=> r.style.background = (i===pos ? '#e3edff' : ''));
+    });
+    row.addEventListener('dragstart', e=>{
+      dragFromIdx = pos;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(pos));
+      setTimeout(()=>{ row.style.opacity = '.35'; }, 12);
+    });
+    row.addEventListener('dragend', ()=>{
+      row.style.opacity = '';
+      dragFromIdx = null;
+      $$('#targetList .field-row').forEach(r=>r.classList.remove('drag-over'));
+    });
+    row.addEventListener('dragover', e=>{
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const targetPos = Number(row.dataset.pos);
+      if(dragFromIdx !== null && dragFromIdx !== targetPos){
+        const from = dragFromIdx;
+        moveTarget(from,targetPos);
+        dragFromIdx = targetPos;
+        updateWorkspaceAfterChange();
+        const newRows = $$('#targetList .field-row');
+        const focus = newRows[targetPos];
+        if(focus) focus.classList.add('drag-over');
+      }
+    });
+    row.addEventListener('drop', e=>{ e.preventDefault(); updateWorkspaceAfterChange(); });
+
+    // Ordering buttons sit to the LEFT of the field name so they stay tappable
+    // even when long names / preview values make the row wide.
+    row.append(num, btns, nm);
+    tgtList.appendChild(row);
+  });
+}
+
+function renderPreview(){
+  const order = state.orderTarget;
+  const hdr = state.headerNames;
+  if(order.length === 0){
+    previewNote.textContent = 'No fields in the new order yet — live preview appears once you add fields.';
+    previewBadge.textContent = '';
+    previewNote.classList.remove('hidden');
+    previewWrap.classList.add('hidden');
+    previewThead.innerHTML='';
+    previewTbody.innerHTML='';
+    return;
+  }
+  previewBadge.textContent = `${order.length} columns · removed ${hdr.length - order.length}`;
+  previewNote.textContent = `Output format: ${fmtInfo().label} (${fmtInfo().hint}) — first 4 rows below.`;
+
+  previewThead.innerHTML='';
+  const htr = document.createElement('tr');
+  const th0 = document.createElement('th'); th0.textContent='#'; htr.appendChild(th0);
+  order.forEach(origIdx=>{
+    const th = document.createElement('th');
+    th.appendChild(document.createTextNode(hdr[origIdx]));
+    const cnum = document.createElement('span'); cnum.className='cnum';
+    cnum.textContent = `col ${origIdx+1}`;
+    th.appendChild(cnum);
+    th.title = hdr[origIdx];
+    htr.appendChild(th);
+  });
+  previewThead.appendChild(htr);
+
+  previewTbody.innerHTML='';
+  const fmt = fmtInfo();
+  const rows = state.previews;
+  if(state.parseInfo.dataRecords === 0){
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = order.length+1;
+    td.className='light-txt';
+    td.textContent='No data rows — header only.';
+    tr.appendChild(td);
+    previewTbody.appendChild(tr);
+  } else if(rows.length === 0){
+    // no preview buffered (e.g. re-parse produced header only)
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = order.length+1;
+    td.className='light-txt';
+    td.textContent='No data rows — header only.';
+    tr.appendChild(td);
+    previewTbody.appendChild(tr);
+  } else {
+    rows.forEach((rec,ri)=>{
+      let fields = [];
+      try { fields = fmt.split(rec); } catch(e){ fields = []; }
+      const tr = document.createElement('tr');
+      const td0 = document.createElement('td');
+      td0.textContent = String(ri+1);
+      td0.style.fontWeight='600';
+      td0.style.color='#526079';
+      tr.appendChild(td0);
+      order.forEach(origIdx=>{
+        const td = document.createElement('td');
+        const v = (origIdx < fields.length) ? sanitizeScalarValue(fields[origIdx]) : '';
+        td.textContent = (v === '') ? '' : String(v).replace(/[\r\n]+/g,'⏎');
+        td.title = String(v).replace(/[\r\n]+/g,' · ');
+        tr.appendChild(td);
+      });
+      previewTbody.appendChild(tr);
+    });
+  }
+  previewWrap.classList.remove('hidden');
+}
+
+/* Issues --------------------------------------------------------- */
+function showIssues(){
+  const p = state.parseInfo;
+  const mainCnt = state.headerNames.length;
+  const list = [];
+  if(p.mismatchedRows > 0){
+    const parts=[];
+    p.rowFieldCounts.forEach((cnt,c)=>{ if(c !== mainCnt) parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`); });
+    list.push(`📏 ${p.mismatchedRows.toLocaleString()} row${p.mismatchedRows===1?'':'s'} differ from the header column count (${mainCnt}). Missing values become empty; extra values are kept at the end.`);
+  }
+  if(p.dataRecords === 0) list.push('📄 Header row only — no data rows found.');
+  if(p.multiline > 0){
+    list.push(`🧵 ${p.multiline.toLocaleString()} record${p.multiline===1?'':'s'} contain embedded newlines in a quoted field (handled correctly).`);
+  } else {
+    list.push('🧵 No multiline fields detected.');
+  }
+  const card = $('#issuesCard');
+  const ul = $('#issuesList');
+  ul.innerHTML = '';
+  if(list.length === 0){ card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  list.forEach(t=>{
+    const div = document.createElement('div');
+    div.style.marginBottom='5px';
+    div.textContent = t;
+    ul.appendChild(div);
+  });
+}
+
+/* =============================================================
+   Save — second streaming pass, constant memory
+   ============================================================= */
+
+/* Output sink abstraction */
+function createSink(){
+  const usesPicker = typeof window.showSaveFilePicker === 'function';
+  let writable = null;
+  let pickerError = null;
+  const chunks = [];
+  return {
+    usesPicker,
+    async begin(suggestedName){
+      if(usesPicker){
+        try{
+          const handle = await window.showSaveFilePicker({
+            suggestedName,
+            types: [{
+              description: 'Load file',
+              accept: { 'application/octet-stream': ['.dat','.txt','.csv','.opt','.load'] }
+            }]
+          });
+          writable = await handle.createWritable();
+          return 'stream';
+        }catch(err){
+          if(err && err.name === 'AbortError'){
+            pickerError = 'cancelled';
+            return 'cancelled';
+          }
+          // Picker unavailable/failed → fall through to direct download
+          pickerError = err && err.message ? err.message : String(err);
+        }
+      }
+      return 'blob';
+    },
+    cancelReason(){ return pickerError; },
+    async writeBytes(bytes){
+      if(writable){
+        try {
+          await writable.write(bytes);
+        } catch(err){
+          if(writable) { try { await writable.abort(); } catch(e){} }
+          writable = null;
+          throw err;
+        }
+      } else {
+        chunks.push(bytes);
+      }
+    },
+    async finish(downloadName){
+      if(writable){
+        await writable.close();
+      } else {
+        const blob = new Blob(chunks, { type:'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(()=>URL.revokeObjectURL(url), 3000);
+        return blob.size;
+      }
+      return null;
+    }
+  };
+}
+
+async function saveFile(){
+  if(!state.file){ toast('No file loaded.'); return; }
+  if(state.orderTarget.length === 0){ toast('⚠️ The new field order is empty.'); return; }
+
+  const fmt = fmtInfo();
+  const downloadName = $('#outName').value.trim() || 'reordered.dat';
+  const sink = createSink();
+  const mode = await sink.begin(downloadName);
+  if(mode === 'cancelled'){
+    toast('Save cancelled.');
+    return;
+  }
+  if(mode === 'blob'){
+    // If user has the giant file in a non-Chromium browser, advise.
+    setBusy('Writing file…', 'Preparing output in browser memory (Blob). For multi-GB files use Chrome/Edge to stream straight to disk.');
+  } else if(mode === 'stream'){
+    setBusy('Writing file…', 'Saving directly to disk (streaming)…');
+  }
+
+  const ON_EVERY = 10000;
+  const FLUSH_BYTES = 1024 * 1024; // flush grouped writes every ~1 MiB
+
+  // Per-record writes to the sink are tiny; pool them so a multi-million-row
+  // file issues ~1 I/O call per MiB instead of one per row. sink.writeBytes()
+  // is invoked synchronously (its body calls writable.write before awaiting),
+  // so the File System Access stream keeps strict write order. The returned
+  // promises are collected and awaited via flushOut() before close(), which
+  // makes failures surface and guarantees every buffered byte is on disk.
+  const outQueue = [];
+  const pendingWrites = [];
+  let outLen = 0;
+  const out = (bytes) => {
+    outQueue.push(bytes);
+    outLen += bytes.byteLength;
+    if(outLen >= FLUSH_BYTES){
+      const merged = new Uint8Array(outLen);
+      let p = 0;
+      for(const part of outQueue){ merged.set(part, p); p += part.byteLength; }
+      outQueue.length = 0;
+      outLen = 0;
+      pendingWrites.push(sink.writeBytes(merged));
+    }
+  };
+  const flushOut = async () => {
+    if(outQueue.length > 0){
+      const merged = new Uint8Array(outLen);
+      let p = 0;
+      for(const part of outQueue){ merged.set(part, p); p += part.byteLength; }
+      outQueue.length = 0;
+      outLen = 0;
+      pendingWrites.push(sink.writeBytes(merged));
+    }
+    if(pendingWrites.length > 0){
+      await Promise.all(pendingWrites);
+      pendingWrites.length = 0;
+    }
+  };
+
+  const order = state.orderTarget;
+  const reorderRecord = (rawRecord) => {
+    let fields;
+    try { fields = fmt.split(rawRecord); } catch(e){ fields = []; }
+    const ordered = [];
+    for(let k=0;k<order.length;k++){
+      const origIdx = order[k];
+      ordered.push(origIdx < fields.length ? sanitizeScalarValue(fields[origIdx]) : '');
+    }
+    if(fields.length > state.headerNames.length){
+      for(let k=state.headerNames.length;k<fields.length;k++){
+        ordered.push(sanitizeScalarValue(fields[k]));
+      }
+    }
+    return fmt.compose(ordered);
+  };
+
+  try {
+    // BOM first (flushed separately so it is first in the file)
+    await sink.writeBytes(metaBomBytes(state.detected));
+
+    // writeLine prepends the EOL before every line after the first, so the
+    // trailing-EOL behavior exactly mirrors the source: no trailing EOL when
+    // the source ended without one, one added by flushTrailingEol when it did.
+    const eolBytes = textToBytes(state.detected, state.eol);
+    let wroteAny = false;
+    const writeLine = (lineText) => {
+      if(wroteAny) out(eolBytes);
+      out(textToBytes(state.detected, lineText));
+      wroteAny = true;
+    };
+    const flushTrailingEol = async () => {
+      if(wroteAny && state.origHadTrailingEOL) await out(eolBytes);
+      await flushOut();
+    };
+
+    // Header row = kept fields in their NEW order. Removed fields are dropped
+    // here and from every data row by reorderRecord.
+    const newHeader = order.map(origIdx => sanitizeScalarValue(state.headerNames[origIdx]));
+    await writeLine(fmt.compose(newHeader));
+
+    let rowCount = 0;
+    let lastPct = -1;
+    const total = state.file.size;
+    const onProgress = async ({pct}) => {
+      if(pct !== null && pct !== lastPct){
+        lastPct = pct;
+        setBusy('Writing file…', `${pct}% · ${rowCount.toLocaleString()} records written`);
+      }
+    };
+    await scanFile(state.file, state.detected, state.fmtKey, async (rec, idx) => {
+      // Source record #0 is the original header — already replaced above.
+      if(idx === 0) return;
+      rowCount++;
+      await writeLine(reorderRecord(rec));
+      if(rowCount % ON_EVERY === 0){
+        await new Promise(r => setTimeout(r, 0)); // let the UI breathe
+      }
+    }, onProgress);
+
+    await flushTrailingEol();
+
+    const size = await sink.finish(downloadName);
+    if(size === null){
+      toast(`💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`);
+    } else {
+      toast(`💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`);
+    }
+  } catch(err){
+    console.error(err);
+    toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
+  } finally {
+    clearBusy();
+  }
+}
+
+/* =============================================================
+   Client Header Map mode
+   Output header = pasted client header list, in order.
+   Each client header may link to one OUR field index (or empty).
+   ============================================================= */
+
+const cl = {
+  rows: [],        // {name (output header), hint (left col our-name when 2-col map), mapped: null|srcIdx}
+  sel: null,       // selected client row index
+  srcQ: '',
+  pastedName: ''
+};
+
+const clPasteText = $('#clPasteText');
+const btnClParsePaste = $('#btnClParsePaste');
+const btnClClearPaste = $('#btnClClearPaste');
+const clPastePreview = $('#clPastePreview');
+const clGridArea = $('#clGridArea');
+const clSrcCount = $('#clSrcCount');
+const clSrcSearch = $('#clSrcSearch');
+const clSrcList = $('#clSrcList');
+const clRowsList = $('#clRowsList');
+const clEmptyRows = $('#clEmptyRows');
+const clRowCountTxt = $('#clRowCountTxt');
+const clWarnUnmapped = $('#clWarnUnmapped');
+const clHeaderInfo = $('#clHeaderInfo');
+const clPreviewBadge = $('#clPreviewBadge');
+const clPreviewNote = $('#clPreviewNote');
+const clPreviewWrap = $('#clPreviewWrap');
+const clPreviewThead = $('#clPreviewHead');
+const clPreviewTbody = $('#clPreviewBody');
+const clOutName = $('#clOutName');
+const clSaveFormatInfo = $('#clSaveFormatInfo');
+
+function normKey(s){
+  return String(s).toLowerCase().replace(/[^a-z0-9\uAC00-\uD7A3]+/g,'').trim();
+}
+
+/* Multi-cell fieldmap / header-list parser -------------------- */
+const FIELDMAP_HEADER_SIG = /(client\s*header|clientfield|client\s*field|our\s*field|ours\s*field|export\s*field|export|load\s*file\s*field|source\s*field|field\s*name|required\s*field|header\s*name)/i;
+
+function cleanCell(c){ return sanitizeScalarValue(String(c==null?'':c)).trim(); }
+
+function parsePastedClientHeaders(text){
+  if(!text || !String(text).trim()) return [];
+  const src = String(text).replace(/^\uFEFF/,'').trim();
+  const rawLines = src.split(/\r\n|\r|\n/).map(l=>l.trim()).filter(l=>l!=='');
+
+  const tabbed = rawLines.some(l => l.includes('\t'));
+  const piped = !tabbed && rawLines.some(l => l.includes('|'));
+  const commaed = !tabbed && !piped && rawLines.length === 1 && rawLines[0].includes(',');
+
+  const lineToCells = (line) => {
+    if(tabbed) return line.split('\t').map(cleanCell).filter(c=>c!=='');
+    if(piped) return line.split('|').map(cleanCell).filter(c=>c!=='');
+    if(commaed) return delimitedSplit(line, ',').map(cleanCell).filter(c=>c!=='');
+    return [cleanCell(line)];
+  };
+
+  const rows = rawLines.map(lineToCells).filter(r => r.length > 0);
+  if(rows.length === 0) return [];
+
+  // Vertical list: every line is a single cell → straight header list.
+  const allSingle = rows.every(r => r.length === 1);
+  if(allSingle){
+    return rows.map(r => ({ name:r[0], hint:null, mapped:null }));
+  }
+
+  // Single horizontal row (one line, many cells) → column headers.
+  if(rawLines.length === 1){
+    return rows[0].map(c => ({ name:c, hint:null, mapped:null }));
+  }
+
+  // Multi-line 2-column (or more) fieldmap: left = OUR name, right = client header.
+  // A signature header row (e.g. "Our Fields / Client Headers") is skipped here.
+  const LOOKS_2COL = rows.every(r => r.length >= 2);
+  if(LOOKS_2COL){
+    let start = 0;
+    if(rows[0].some(c => FIELDMAP_HEADER_SIG.test(c))){
+      start = 1;
+    }
+    if(start >= rows.length) return [];
+    const out = [];
+    rows.slice(start).forEach(r => {
+      // Client header = the right-most non-empty cell.
+      let headerIdx = r.length - 1;
+      while(headerIdx > 0 && r[headerIdx] === '') headerIdx--;
+      const clientName = r[headerIdx];
+      const ourHint = headerIdx > 0 ? r[headerIdx - 1] : null;
+      if(clientName) out.push({ name:clientName, hint:(ourHint || null), mapped:null });
+    });
+    return out;
+  }
+
+  // Mixed lines with cells but already single-cell style in most rows:
+  // treat first cell of each row as the header (tolerant).
+  return rows.map(r => ({ name:r[0], hint:r[1] || null, mapped:null }));
+}
+
+/* Row mapping helpers ----------------------------------------- */
+function clUsedBySrc(){
+  const used = new Map(); // srcIdx -> rowIdx
+  cl.rows.forEach((r,ri)=>{ if(r.mapped !== null) used.set(r.mapped, ri); });
+  return used;
+}
+
+function selectClRow(pos){
+  cl.sel = pos;
+  clRenderAll();
+}
+function clUnmapRow(pos){
+  if(!cl.rows[pos]) return;
+  cl.rows[pos].mapped = null;
+  clRenderAll();
+}
+function clMapSrcToRow(srcIdx, rowIdx){
+  if(cl.sel === null) return false;
+  if(srcIdx == null || rowIdx == null || !cl.rows[rowIdx]) return false;
+  // Detach this row's previous mapping.
+  cl.rows[rowIdx].mapped = null;
+  // Detach the OUR field wherever else it was mapped (one OUR field → one column).
+  const used = clUsedBySrc();
+  const prevRow = used.get(srcIdx);
+  if(prevRow !== undefined && prevRow !== rowIdx){
+    cl.rows[prevRow].mapped = null;
+  }
+  cl.rows[rowIdx].mapped = srcIdx;
+  return true;
+}
+function clRemoveRow(pos){
+  cl.rows.splice(pos,1);
+  if(cl.sel === pos) cl.sel = null;
+  else if(cl.sel !== null && cl.sel > pos) cl.sel--;
+  clRenderAll();
+}
+function clMoveRow(from, to){
+  if(from === to || from < 0 || to < 0 || to >= cl.rows.length) return;
+  const item = cl.rows.splice(from,1)[0];
+  cl.rows.splice(to,0,item);
+  cl.sel = to;
+  clRenderAll();
+}
+function clResetRows(){
+  cl.rows = [];
+  cl.sel = null;
+  clRenderAll();
+}
+/* Called after a source file is (re)parsed — clears client UI state.
+   Safe via typeof guard because this function is defined after loadFile. */
+function clResetUi(){
+  cl.rows = [];
+  cl.sel = null;
+  clPasteText.value = '';
+  clPastePreview.textContent = '';
+  clPastePreview.title = '';
+  clGridArea.classList.add('hidden');
+  clRenderAll();
+}
+
+/* Renders + live preview -------------------------------------- */
+function clRenderAll(){
+  const hasRows = cl.rows.length > 0;
+  clGridArea.classList.toggle('hidden', !hasRows);
+  clEmptyRows.classList.toggle('hidden', hasRows);
+  clRowsList.classList.toggle('hidden', !hasRows);
+
+  renderClSrc();
+  renderClRows();
+  renderClPreview();
+}
+
+function renderClSrc(){
+  const q = clSrcSearch.value.trim().toLowerCase();
+  const used = clUsedBySrc();
+  clSrcCount.textContent = `${state.headerNames.length} fields`;
+  clSrcList.innerHTML = '';
+  state.headerNames.forEach((name,i)=>{
+    const mappedRow = used.get(i);
+    if(q && !name.toLowerCase().includes(q)) return;
+    const row = document.createElement('div');
+    row.className = 'field-row' + (mappedRow !== undefined ? ' used' : '');
+    row.style.background = mappedRow !== undefined ? '#e8f6ec' : '';
+    const num = document.createElement('span'); num.className='idx'; num.textContent=String(i+1);
+    const nm = document.createElement('span'); nm.className='nm'; nm.textContent=name; nm.title=name;
+    row.append(num, nm);
+    if(mappedRow !== undefined){
+      const st = document.createElement('span');
+      st.className='badge ok src-field-status';
+      st.textContent = '→ ' + cl.rows[mappedRow].name;
+      st.title = `Mapped to client header #${mappedRow+1}`;
+      row.append(st);
+    } else {
+      const add = document.createElement('span'); add.className='add-ic'; add.textContent='＋'; add.title='Map to selected client header';
+      row.append(add);
+    }
+    row.addEventListener('click', ()=>{
+      if(cl.sel === null){
+        toast('⚠️ 먼저 우측에서 클라이언트 헤더 행을 선택하세요.');
+        return;
+      }
+      const ok = clMapSrcToRow(i, cl.sel);
+      if(ok){
+        renderClSrc();
+        renderClRows();
+        renderClPreview();
+        toast(`Mapped: ${name} → ${cl.rows[cl.sel].name}`);
+      }
+    });
+    clSrcList.appendChild(row);
+  });
+  if(!q && state.headerNames.length === 0){
+    const empty = document.createElement('div');
+    empty.className='field-row empty';
+    empty.textContent = 'No source fields (load a .dat first).';
+    clSrcList.appendChild(empty);
+  }
+}
+
+function renderClRows(){
+  const hasRows = cl.rows.length > 0;
+  clEmptyRows.classList.toggle('hidden', hasRows);
+  clRowsList.classList.toggle('hidden', !hasRows);
+  if(!hasRows){
+    clRowCountTxt.textContent = '0';
+    clWarnUnmapped.classList.add('hidden');
+    return;
+  }
+  clRowCountTxt.textContent = String(cl.rows.length);
+  const unmapped = cl.rows.filter(r=>r.mapped===null).length;
+  clWarnUnmapped.classList.toggle('hidden', unmapped===0);
+  let b = clWarnUnmapped.querySelector('b');
+  if(b) b.textContent = `아직 매핑 안 된 클라이언트 헤더 ${unmapped}개`;
+
+  clRowsList.innerHTML = '';
+  cl.rows.forEach((r,pos)=>{
+    const row = document.createElement('div');
+    row.className = 'client-row' + (cl.sel === pos ? ' sel' : '');
+    const no = document.createElement('span'); no.className='cno'; no.textContent=String(pos+1);
+    const nm = document.createElement('span'); nm.className='cname'; nm.textContent=r.name; nm.title=r.name;
+    const chip = document.createElement('span');
+    if(r.mapped !== null){
+      chip.className='cmap';
+      const dir = document.createElement('span'); dir.className='cl-dir'; dir.textContent='⬅';
+      const b = document.createElement('b'); b.textContent = state.headerNames[r.mapped] || '(unknown)';
+      const un = document.createElement('button'); un.className='unlink'; un.textContent='✕'; un.type='button';
+      un.title='Unmap this field';
+      un.addEventListener('click', e=>{ e.stopPropagation(); clUnmapRow(pos); toast(`Unmapped: ${r.name}`); });
+      chip.append(dir, b, un);
+    } else {
+      chip.className='cmap un';
+      const b = document.createElement('b'); b.textContent='(헤더만 · 빈 값)';
+      chip.appendChild(b);
+    }
+    // Clicking the row selects it; clicking a mapped chip (except its ✕) also selects
+    chip.addEventListener('click', e=>{ e.stopPropagation(); selectClRow(pos); });
+    row.append(no, nm, chip);
+    row.addEventListener('click', ()=> selectClRow(pos));
+    clRowsList.appendChild(row);
+  });
+}
+
+function clMapArray(){
+  return cl.rows.map(r => (r.mapped !== null ? r.mapped : null));
+}
+
+function renderClPreview(){
+  const mapArr = clMapArray();
+  const has = cl.rows.length > 0;
+  const headerNames = cl.rows.map(r=>r.name);
+  clSaveFormatInfo.textContent = state.file ? `${FORMATS[state.fmtKey].label} · ${state.detected.label} · ${state.eolLabel}` : '';
+  clHeaderInfo.textContent = '';
+
+  if(!has){
+    clPreviewWrap.classList.add('hidden');
+    clPreviewThead.innerHTML=''; clPreviewTbody.innerHTML='';
+    clPreviewNote.classList.remove('hidden');
+    clPreviewNote.textContent = '클라이언트 헤더 목록을 붙여넣고 Parse를 누르면 이곳에서 출력을 미리 볼 수 있습니다.';
+    return;
+  }
+  clPreviewNote.classList.add('hidden');
+  const matchedCnt = mapArr.filter(x=>x!==null).length;
+  clPreviewBadge.textContent = `${cl.rows.length} columns · ${matchedCnt} mapped · ${headerNames.length-matchedCnt} empty`;
+
+  clPreviewThead.innerHTML='';
+  const htr = document.createElement('tr');
+  const th0 = document.createElement('th'); th0.textContent='#'; htr.appendChild(th0);
+  headerNames.forEach((name,pos)=>{
+    const th = document.createElement('th');
+    th.textContent = name;
+    const sub = document.createElement('span'); sub.className='cnum';
+    sub.textContent = mapArr[pos] === null ? '· (blank)' : `· ← ${state.headerNames[mapArr[pos]]}`;
+    th.appendChild(sub);
+    th.title = name;
+    htr.appendChild(th);
+  });
+  clPreviewThead.appendChild(htr);
+
+  clPreviewTbody.innerHTML='';
+  const fmt = fmtInfo();
+  const rowsN = state.previews || [];
+  if((state.parseInfo.dataRecords || 0) === 0 || rowsN.length === 0){
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = headerNames.length + 1;
+    td.className='cl-preview-empty';
+    td.textContent = 'No data rows — header only.';
+    tr.appendChild(td);
+    clPreviewTbody.appendChild(tr);
+  } else {
+    rowsN.forEach((rec,ri)=>{
+      let fields = [];
+      try { fields = fmt.split(rec); } catch(e){ fields = []; }
+      const tr = document.createElement('tr');
+      const td0 = document.createElement('td');
+      td0.textContent=String(ri+1); td0.style.fontWeight='600'; td0.style.color='#526079';
+      tr.appendChild(td0);
+      mapArr.forEach(srcIdx=>{
+        const td = document.createElement('td');
+        const v = srcIdx !== null && srcIdx < fields.length ? sanitizeScalarValue(fields[srcIdx]) : '';
+        td.textContent = (v === '') ? '' : String(v).replace(/[\r\n]+/g,'⏎');
+        td.title = String(v).replace(/[\r\n]+/g,' · ');
+        tr.appendChild(td);
+      });
+      clPreviewTbody.appendChild(tr);
+    });
+  }
+  clPreviewWrap.classList.remove('hidden');
+}
+
+/* Client-map save — second streaming pass (mirrors saveFile
+   but emits client header names and only mapped source values) */
+async function saveClientFile(){
+  if(!state.file){ toast('No file loaded.'); return; }
+  if(cl.rows.length === 0){ toast('⚠️ 클라이언트 헤더 목록이 없습니다. 먼저 붙여넣고 Parse 하세요.'); return; }
+  const fmt = fmtInfo();
+  const downloadName = (clOutName.value.trim() || 'client_mapped.dat');
+  const sink = createSink();
+  const mode = await sink.begin(downloadName);
+  if(mode === 'cancelled'){ toast('Save cancelled.'); return; }
+  if(mode === 'blob'){
+    setBusy('Writing client file…', 'Preparing output in browser memory (Blob). For multi-GB files use Chrome/Edge to stream straight to disk.');
+  } else if(mode === 'stream'){
+    setBusy('Writing client file…', 'Saving directly to disk (streaming)…');
+  }
+
+  const outQueue = [];
+  const pendingWrites = [];
+  let outLen = 0;
+  const out = (bytes)=>{ outQueue.push(bytes); outLen += bytes.byteLength; if(outLen >= 1024*1024){
+    const merged = new Uint8Array(outLen); let p = 0;
+    for(const part of outQueue){ merged.set(part,p); p += part.byteLength; }
+    outQueue.length = 0; outLen = 0; pendingWrites.push(sink.writeBytes(merged));
+  }};
+  const flushOut = async ()=>{ if(outQueue.length){ const merged = new Uint8Array(outLen); let p=0; for(const part of outQueue){ merged.set(part,p); p+=part.byteLength; } outQueue.length=0; outLen=0; pendingWrites.push(sink.writeBytes(merged)); } if(pendingWrites.length){ await Promise.all(pendingWrites); pendingWrites.length=0; } };
+
+  const mapArr = clMapArray();
+  const composeRow = (rawRecord) => {
+    let fields;
+    try { fields = fmt.split(rawRecord); } catch(e){ fields = []; }
+    const vals = mapArr.map(srcIdx => (srcIdx !== null && srcIdx < fields.length) ? sanitizeScalarValue(fields[srcIdx]) : '');
+    return fmt.compose(vals);
+  };
+
+  try {
+    await sink.writeBytes(metaBomBytes(state.detected));
+    const eolBytes = textToBytes(state.detected, state.eol);
+    let wroteAny = false;
+    const writeLine = (lineText)=> { if(wroteAny) out(eolBytes); out(textToBytes(state.detected, lineText)); wroteAny = true; };
+    const flushTrailingEol = async ()=>{ if(wroteAny && state.origHadTrailingEOL) out(eolBytes); await flushOut(); };
+
+    const newHeader = cl.rows.map(r => sanitizeScalarValue(r.name));
+    await writeLine(fmt.compose(newHeader));
+
+    let rowCount = 0, lastPct = -1;
+    await scanFile(state.file, state.detected, state.fmtKey, async (rec, idx) => {
+      if(idx === 0) return;
+      rowCount++;
+      await writeLine(composeRow(rec));
+      if(rowCount % 10000 === 0) await new Promise(r=>setTimeout(r,0));
+    }, ({pct}) => {
+      if(pct !== null && pct !== lastPct){ lastPct = pct; setBusy('Writing client file…', `${pct}% · ${rowCount.toLocaleString()} records written`); }
+    });
+
+    await flushTrailingEol();
+    const size = await sink.finish(downloadName);
+    if(size === null){
+      toast(`💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`);
+    } else {
+      toast(`💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`);
+    }
+  } catch(err){
+    console.error(err);
+    toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
+  } finally {
+    clearBusy();
+  }
+}
+
+/* Client-mode events ------------------------------------------ */
+function bindClientMode(){
+  btnClParsePaste.addEventListener('click', ()=>{
+    const out = parsePastedClientHeaders(clPasteText.value);
+    if(out.length === 0){
+      toast('⚠️ 헤더를 인식하지 못했습니다. 탭/콤마/파이프 구분 또는 줄 단위로 붙여넣어 주세요.');
+      return;
+    }
+    // Remove duplicate headers? Duplicates are legal in some systems but confusing —
+    // we keep them but report.
+    cl.rows = out;
+    cl.sel = 0;
+    clPastePreview.textContent = `${out.length} client header${out.length===1?'':'s'} parsed`;
+    clPastePreview.title = out.map((r,ix)=>`${ix+1}. ${r.name}`).join('\n');
+    clRenderAll();
+    toast(`✅ ${out.length}개 클라이언트 헤더 로드 — 이 순서가 출력 헤더가 됩니다.`);
+  });
+
+  btnClClearPaste.addEventListener('click', ()=>{
+    clPasteText.value = '';
+    clPastePreview.textContent = '';
+    cl.rows = [];
+    cl.sel = null;
+    clRenderAll();
+    toast('Paste area cleared.');
+  });
+
+  clSrcSearch.addEventListener('input', renderClSrc);
+
+  $('#btnClUnlinkAll').addEventListener('click', ()=>{
+    cl.rows.forEach(r=> r.mapped = null);
+    clRenderAll();
+    toast('All client header mappings cleared.');
+  });
+
+  $('#btnClAutoGuess').addEventListener('click', ()=>{
+    if(cl.rows.length === 0){ toast('먼저 클라이언트 헤더를 로드하세요.'); return; }
+    const unnorm = (s)=> String(s).toLowerCase().replace(/[^a-z0-9\uAC00-\uD7A3]+/g,'');
+    const srcNames = state.headerNames;
+    let matched = 0;
+    cl.rows.forEach(r=>{
+      if(r.mapped !== null) return;
+      const targets = [r.hint, r.name].filter(Boolean);
+      // 1) exact normalized match
+      let hit = null;
+      for(const t of targets){
+        const tk = unnorm(t);
+        if(!tk) continue;
+        for(let i=0;i<srcNames.length;i++){
+          if(unnorm(srcNames[i]) === tk){ hit = i; break; }
+        }
+        if(hit !== null) break;
+      }
+      if(hit === null){
+        // 2) token / substring containment (priority to shorter source; left col hint first)
+        for(const t of targets){
+          const tk = unnorm(t);
+          if(!tk || tk.length < 3) continue;
+          for(let i=0;i<srcNames.length;i++){
+            const sk = unnorm(srcNames[i]);
+            if(sk === tk){ hit = i; break; }
+            if(sk.length && (sk.includes(tk) || (sk.length >= 4 && tk.includes(sk)))){ hit = i; break; }
+          }
+          if(hit !== null) break;
+        }
+      }
+      if(hit !== null){
+        // ensure no double use — clear any previous occupant
+        const prev = cl.rows.findIndex(o=>o.mapped===hit);
+        if(prev !== -1) cl.rows[prev].mapped = null;
+        r.mapped = hit;
+        matched++;
+      }
+    });
+    clRenderAll();
+    toast(`✨ 자동 매칭 완료 — ${matched}개 연결 (나머지는 수동으로 연결하세요)`);
+  });
+
+  const btn = (id,fn)=>{ const el=document.getElementById(id); if(el) el.addEventListener('click', fn); };
+  btn('btnClMoveTop', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } clMoveRow(cl.sel,0); });
+  btn('btnClMoveUp', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } clMoveRow(cl.sel, Math.max(0, cl.sel-1)); });
+  btn('btnClMoveDown', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } clMoveRow(cl.sel, Math.min(cl.rows.length-1, cl.sel+1)); });
+  btn('btnClMoveBottom', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } clMoveRow(cl.sel, cl.rows.length-1); });
+  btn('btnClRemoveRow', ()=>{ if(cl.sel===null){ toast('클라이언트 행을 먼저 선택하세요.'); return; } const n = cl.rows[cl.sel].name; clRemoveRow(cl.sel); toast(`Removed client row: ${n}`); });
+  btn('btnClSave', saveClientFile);
+
+  // Mode tabs navigation
+  $$('#modeTabs .mtab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      const mode = tab.dataset.mode;
+      switchClientMode(mode);
+    });
+  });
+}
+
+function switchClientMode(mode){
+  const isReorder = mode === 'reorder';
+  const isClient = mode === 'client';
+  $('#reorderArea').classList.toggle('hidden', !isReorder);
+  $('#clientArea').classList.toggle('hidden', !isClient);
+  $$('#modeTabs .mtab').forEach(b=>{
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('on', on);
+  });
+  if(isClient && cl.rows.length > 0 && clPastePreview.textContent === ''){
+    clPastePreview.textContent = `${cl.rows.length} client headers ready`;
+  }
+}
+
+/* =============================================================
+   Events
+   ============================================================= */
+function bindButtons(){
+  $('#btnAddAll').addEventListener('click', ()=>{
+    state.orderTarget = state.headerNames.map((_,i)=>i);
+    state.selection = null;
+    updateWorkspaceAfterChange();
+    toast('All fields added in original order.');
+  });
+  $('#btnResetOrder').addEventListener('click', ()=>{
+    state.orderTarget = state.headerNames.map((_,i)=>i);
+    state.selection = null;
+    updateWorkspaceAfterChange();
+    toast('↺ Reset to original header order.');
+  });
+  $('#btnMoveTop').addEventListener('click', ()=>{
+    if(state.selection===null){ toast('Select a field first.'); return; }
+    moveTop(state.selection);
+  });
+  $('#btnMoveUp').addEventListener('click', ()=>{
+    if(state.selection===null){ toast('Select a field first.'); return; }
+    moveDelta(state.selection,-1);
+  });
+  $('#btnMoveDown').addEventListener('click', ()=>{
+    if(state.selection===null){ toast('Select a field first.'); return; }
+    moveDelta(state.selection,1);
+  });
+  $('#btnMoveBottom').addEventListener('click', ()=>{
+    if(state.selection===null){ toast('Select a field first.'); return; }
+    moveBottom(state.selection);
+  });
+  $('#btnShowRemoved').addEventListener('click', ()=>{
+    const removed = state.headerNames.filter((_,i)=>!state.orderTarget.includes(i));
+    if(removed.length===0){ toast('No removed fields.'); return; }
+    toast('Removed: ' + removed.join(', '));
+  });
+
+  // Manual format override
+  fmtOverride.addEventListener('change', async ()=>{
+    state.manualFmt = fmtOverride.value;
+    const newFmt = state.manualFmt && FORMATS[state.manualFmt] ? state.manualFmt : detectFormat(state.detected ? state.detected.sampleText : '');
+    if(!FORMATS[newFmt]) return;
+    loadToken++;
+    setBusy('Re-parsing…', 'Reading file with the selected format…');
+    try{
+      const parsed = await buildFileIndex(state.file, state.detected, newFmt, ({pct}) => {
+        if(pct !== null) setBusy('Re-parsing…', `${pct}% scanned`);
+      });
+      if(!parsed){
+        toast('⚠️ No parseable header found with that format.');
+        clearBusy();
+        return;
+      }
+      state.fmtKey = newFmt;
+      state.headerNames = parsed.headerNames;
+      state.previews = parsed.previews;
+      state.parseInfo = {
+        headerRaw: parsed.headerRaw,
+        dataRecords: parsed.dataRecords,
+        rowFieldCounts: parsed.rowFieldCounts,
+        multiline: parsed.multiline,
+        mismatchedRows: parsed.mismatched
+      };
+      state.orderTarget = parsed.headerNames.map((_,i)=>i);
+      state.selection = null;
+      fmtBadge.textContent = `${FORMATS[newFmt].label}  — ${FORMATS[newFmt].hint}${state.manualFmt ? ' (manual override)' : ''}`;
+      renderSummary();
+      showWorkspace();
+      showIssues();
+      if(typeof clResetUi === 'function') clResetUi();
+      toast(`Re-parsed as ${FORMATS[newFmt].label}`);
+    } catch(err){
+      console.error(err);
+      toast('⚠️ Re-parse failed: ' + (err && err.message ? err.message : 'error'));
+    } finally {
+      clearBusy();
+    }
+  });
+  btnReParse.addEventListener('click', ()=>{
+    fmtOverride.dispatchEvent(new Event('change'));
+  });
+
+  srcSearch.addEventListener('input', renderSourceList);
+  $('#btnSave').addEventListener('click', saveFile);
+}
+
+/* File open */
+const dropZone = $('#dropZone');
+const fileInput = $('#fileInput');
+
+dropZone.addEventListener('click', ()=> fileInput.click());
+dropZone.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fileInput.click(); } });
+fileInput.addEventListener('change', e=>{ openFileHandler(e.target.files[0]); e.target.value=''; });
+['dragenter','dragover'].forEach(ev=>{
+  dropZone.addEventListener(ev, e=>{ e.preventDefault(); dropZone.classList.add('over'); });
+});
+['dragleave','drop'].forEach(ev=>{
+  dropZone.addEventListener(ev, e=>{ e.preventDefault(); dropZone.classList.remove('over'); });
+});
+dropZone.addEventListener('drop', e=>{
+  e.preventDefault();
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  openFileHandler(file);
+});
+
+function openFileHandler(file){
+  if(!file) return;
+  loadFile(file);
+}
+
+bindButtons();
+bindClientMode();
+
+// Informational: show which save path will be used
+if(typeof window.showSaveFilePicker === 'function'){
+  const note = document.createElement('div');
+  note.className = 'preview-note';
+  note.style.marginTop='8px';
+  note.textContent = '💾 Streaming disk save is available — multi-GB outputs use constant memory (Chrome/Edge).';
+  document.querySelector('.save-area').appendChild(note);
+} else {
+  const note = document.createElement('div');
+  note.className = 'preview-note';
+  note.style.marginTop='8px';
+  note.textContent = '💾 This browser saves via an in-memory download. For multi-GB files, Chrome/Edge can stream straight to disk.';
+  document.querySelector('.save-area').appendChild(note);
+}
+
+console.info('DAT Field Reorder — streaming edition. Supported: þ 0xFE, ^|^ Concordance, CSV, Tab, Pipe. All local.');
+</script>
+</body>
+</html>

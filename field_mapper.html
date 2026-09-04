@@ -90,6 +90,22 @@
   #dropZone .big{font-size:18px;font-weight:600}
   #dropZone .sub{font-size:13px;color:var(--muted);margin-top:7px}
   .dz-icon{font-size:44px;margin-bottom:6px;display:block}
+  .drop-zone-sm{
+    border:2px dashed #9fb4d8;border-radius:14px;padding:20px 18px;text-align:center;
+    background:linear-gradient(180deg,#f7faff,#eef4ff);transition:.18s;cursor:pointer;
+  }
+  .drop-zone-sm:hover{border-color:var(--brand);background:#e9f1ff}
+  .drop-zone-sm.over{border-color:var(--brand);background:#dceaFF}
+  .drop-zone-sm .dz-ic{font-size:26px;display:block;margin-bottom:4px}
+  .drop-zone-sm .dz-big{font-size:14.5px;font-weight:600}
+  .drop-zone-sm .dz-sub{font-size:12px;color:var(--muted);margin-top:4px}
+  .drop-zone-sm.has-file{border-style:solid;background:#edf7ee;border-color:#9ccba9}
+  .drop-zone-sm.has-file .dz-big{color:var(--ok)}
+  .val-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .val-file-tag{font-size:13px;word-break:break-all;font-weight:600}
+  .val-sum-box{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;align-items:center}
+  .val-mapping-sum{font-size:12.5px;color:var(--muted);white-space:pre-wrap;line-height:1.6;margin-top:8px;
+    background:#fbfcfe;border:1px solid var(--line);border-radius:9px;padding:9px 12px;max-height:190px;overflow:auto;font-family:Consolas,"Cascadia Mono",Menlo,monospace}
 
   #fmtBar{
     display:flex;align-items:center;gap:12px;flex-wrap:wrap;
@@ -414,7 +430,7 @@
       <span class="dz-icon">📄</span>
       <div class="big">Drop a load file here</div>
       <div class="sub">or <u>click to browse</u> &middot; supports <b>þ (0xFE)</b>, <b>Concordance ^|^</b>, CSV, Tab, Pipe &middot; first row = header</div>
-      <input type="file" id="fileInput" accept=".dat,.txt,.csv,.opt,.load,application/octet-stream" hidden>
+      <input type="file" id="fileInput" accept=".dat,.txt,.csv,.load,application/octet-stream" hidden>
     </div>
 
     <div id="fmtBar" class="hidden">
@@ -446,6 +462,9 @@
       </button>
       <button class="mtab" type="button" data-mode="client" title="Paste client headers → link our fields → save">
         <span class="mi">📋</span><span>Client Header Map<small>Map fields to client headers</small></span>
+      </button>
+      <button class="mtab" type="button" data-mode="validator" title="Verify a saved output file against the original — post-save file re-read validation">
+        <span class="mi">✅</span><span>Validator<small>Verify saved file vs original</small></span>
       </button>
     </div>
 
@@ -527,8 +546,8 @@
         <input type="checkbox" id="reorderMismatchCbx">
         <span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
       </div>
-      <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 validation report (record reconciliation, data loss, removed fields). Report is shown after save; download it with the Report button.">
-        <input type="checkbox" id="reorderAuditCbx" checked>
+        <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 validation report (transformation reconciliation, data loss, removed fields). Report is shown after save; download it with the Report button.">
+          <input type="checkbox" id="reorderAuditCbx" checked>
         <span>🛡️ Create audit report (SHA-256) after saving</span>
       </label>
       <div class="save-area">
@@ -641,7 +660,11 @@
           <input type="checkbox" id="clMismatchCbx">
           <span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
         </div>
-        <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 validation report (record reconciliation, data loss, mapping snapshot). Report is shown after save; download it with the Report button.">
+        <div class="save-guard-note hidden" id="clUnmappedOverride" title="Tick this ONLY if you intentionally want blank values written for the unmapped output columns. The header names are still emitted — only their data values are empty.">
+          <input type="checkbox" id="clUnmappedCbx">
+          <span id="clUnmappedGuardLabel">Allow save with unmapped client headers — those output columns will be written as EMPTY values.</span>
+        </div>
+        <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 validation report (transformation reconciliation, data loss, mapping snapshot). Report is shown after save; download it with the Report button.">
           <input type="checkbox" id="clAuditCbx" checked>
           <span>🛡️ Create audit report (SHA-256) after saving</span>
         </label>
@@ -655,6 +678,75 @@
       </article>
       </div><!-- /clGridArea -->
     </div><!-- /clientArea -->
+
+    <!-- ============ Validator workspace (post-save re-read) ============ -->
+    <div id="validatorArea" class="hidden">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-h">
+          <h2>✅ Validator — Saved-File Re-Read</h2>
+          <span class="meta">Original ↔ Output (컬럼 텍스트 비교, 예상 정제 허용)</span>
+        </div>
+        <p style="font-size:12.8px;color:var(--muted);line-height:1.7;margin-bottom:12px">
+          저장된 결과 파일을 <b>다시 읽어</b> 원본 데이터와 대조합니다. 바이트가 아니라 <b>파싱된 셀 텍스트</b>를 비교하며,
+          데이터 정제 목적의 예상 변환(EOL·리인용·서로게이트 U+FFFD·CP1252 '?'·EDML 0x14/0xFE→공백)은
+          <b>EXPECTED(정상 정제)</b>로 분류하여 손상(Fail)으로 취급하지 않습니다.
+          이 탭은 저장 루틴의 "메모리 내 변환 수" 보고서와 달리 <b>디스크에 실제 저장된 파일 재검증</b> 결과입니다.
+        </p>
+        <div class="val-grid">
+          <div>
+            <div class="drop-zone-sm" id="valSrcZone" tabindex="0" role="button">
+              <span class="dz-ic">📄</span>
+              <div class="dz-big" id="valSrcTitle">Drop Original (원본) file</div>
+              <div class="dz-sub">format/encoding auto-detected &middot; first row = header</div>
+              <input type="file" id="valSrcInput" accept=".dat,.txt,.csv,.load,application/octet-stream" hidden>
+            </div>
+            <div class="val-file-tag" id="valSrcTag" style="margin-top:7px"></div>
+          </div>
+          <div>
+            <div class="drop-zone-sm" id="valOutZone" tabindex="0" role="button">
+              <span class="dz-ic">✅</span>
+              <div class="dz-big" id="valOutTitle">Drop Saved Output (결과) file</div>
+              <div class="dz-sub">생성된 납품/재정렬 파일을 놓으세요</div>
+              <input type="file" id="valOutInput" accept=".dat,.txt,.csv,.load,application/octet-stream" hidden>
+            </div>
+            <div class="val-file-tag" id="valOutTag" style="margin-top:7px"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-h">
+          <h2>2️⃣ Column Mapping — 원본 열 ↔ 결과 열</h2>
+          <span class="meta">이름이 바뀐(Rename) 열은 붙여넣기 필드맵 필수</span>
+        </div>
+        <p style="font-size:12.8px;color:var(--muted);margin-bottom:8px;line-height:1.7">
+          결과 헤더가 원본 헤더의 순열/부분집합이면 <b>✨ Auto-Match</b>로 자동 대응됩니다
+          (BEGDOC→Bates_Begin 같은 Rename 포함 시에는 아래 2-컬럼 필드맵을 붙여넣으세요:<br>
+          <b>왼쪽 = 원본 열 이름, 오른쪽 = 결과(납품) 열 이름</b> — Client Header Map 모드와 동일 형식).
+        </p>
+        <textarea id="valMapText" spellcheck="false"
+          placeholder="Optional — 2-column map (원본 헤더 / 결과 헤더):&#10;BEGDOC&#9;Bates_Begin&#10;CUSTODIAN&#9;Custodian&#10;..."></textarea>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
+          <button class="btn" id="btnValMapParse">✔ Apply Pasted Map</button>
+          <button class="btn primary" id="btnValAutoMap">✨ Auto-Match Headers</button>
+          <button class="btn" id="btnValClearMap">Clear Map</button>
+          <span class="cl-sample" id="valMapPreview" style="margin-top:0"></span>
+          <span style="flex:1"></span>
+          <button class="btn-big" id="btnValidate">🚀 Validate Files</button>
+        </div>
+        <div class="val-mapping-sum hidden" id="valMappingSum"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">
+          <h2>3️⃣ Validation Result</h2>
+          <span class="badge ok" id="valStatusBadge">—</span>
+          <button class="btn" id="btnValDownload" disabled>⬇ Download Validation Report (.txt)</button>
+        </div>
+        <div class="val-sum-box hidden" id="valSumBox"></div>
+        <pre class="audit-pre" id="valReportPre" style="white-space:pre-wrap">Validator가 두 파일의 헤더와 각 행을 재대조하면 결과가 여기에 표시됩니다.</pre>
+      </div>
+    </div><!-- /validatorArea -->
   </section>
 
   <section class="card hidden" id="issuesCard">
@@ -1262,6 +1354,11 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   const streamer = new RecordStreamer(fmtKey, onRecord);
   const total = file.size;
   const utf16 = meta.kind === 'utf-16le' || meta.kind === 'utf-16be';
+  // Audit hashing must start at byte 0. The scanner starts reading after any
+  // BOM (the TextDecoder would otherwise never see those bytes), so explicitly
+  // feed the BOM bytes first so the source hash covers the full original file
+  // (BOM inclusive). metaBomBytes() returns an empty array when no BOM exists.
+  if(onRawChunk && meta.hasBOM && meta.bomBytes > 0) onRawChunk(metaBomBytes(meta));
   let offset = meta.bomBytes;
   let lastProgressPct = -1;
 
@@ -1279,7 +1376,7 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
       bytes = merged;
     }
 
-    if(onRawChunk) onRawChunk(bytes);  // audit: feed exact file bytes (no BOM)
+    if(onRawChunk) onRawChunk(bytes);  // audit: exact file bytes (BOM was fed above)
     const text = dec.decode(bytes);
     await streamer.push(text);
 
@@ -1479,6 +1576,23 @@ function updateSaveGuardUi(){
   const clOver = $('#clMismatchOverride');
   const clCbx = $('#clMismatchCbx');
   if(clOver){ clOver.classList.toggle('hidden', !mm); if(!mm && clCbx) clCbx.checked = false; }
+
+  // Client-mode hard stop: unmapped client headers would silently be written
+  // as empty columns. The override checkbox below is the only way past this
+  // guard (explicit consent). The banner auto-hides/clears when nothing is
+  // unmapped, keeping the user flow as light as possible.
+  const unOver = $('#clUnmappedOverride');
+  const unCbx = $('#clUnmappedCbx');
+  if(unOver){
+    let n = 0;
+    if(typeof cl !== 'undefined' && cl.rows) n = cl.rows.filter(r=>r.mapped===null).length;
+    unOver.classList.toggle('hidden', n === 0);
+    if(n === 0 && unCbx) unCbx.checked = false;
+    const unLbl = $('#clUnmappedGuardLabel');
+    if(unLbl && n > 0){
+      unLbl.textContent = `Allow save with ${n} unmapped client header${n===1?'':'s'} — ${n===1?'this column':'these columns'} will be written as EMPTY values. (Recommended: map ${n===1?'it':'them'} on the left first.)`;
+    }
+  }
 }
 
 /* Loader entry -------------------------------------------------- */
@@ -1941,7 +2055,7 @@ function createSink(onWrite){
             suggestedName,
             types: [{
               description: 'Load file',
-              accept: { 'application/octet-stream': ['.dat','.txt','.csv','.opt','.load'] }
+              accept: { 'application/octet-stream': ['.dat','.txt','.csv','.load'] }
             }]
           });
           writable = await handle.createWritable();
@@ -2218,10 +2332,18 @@ function parsePastedClientHeaders(text){
   const piped = !tabbed && rawLines.some(l => l.includes('|'));
   const commaed = !tabbed && !piped && rawLines.length === 1 && rawLines[0].includes(',');
 
+  // Split into cells while PRESERVING interior blanks. A 2-column Excel map
+  // may intentionally have an empty left cell ("no our-field") — filtering
+  // those out earlier collapsed column positions and linked the wrong cells.
+  // Only TRAILING empty cells (Excel rectangular-range padding) are trimmed.
+  const trimTrailingBlanks = (cells) => {
+    while(cells.length && cells[cells.length-1] === '') cells.pop();
+    return cells;
+  };
   const lineToCells = (line) => {
-    if(tabbed) return line.split('\t').map(cleanCell).filter(c=>c!=='');
-    if(piped) return line.split('|').map(cleanCell).filter(c=>c!=='');
-    if(commaed) return delimitedSplit(line, ',').map(cleanCell).filter(c=>c!=='');
+    if(tabbed) return trimTrailingBlanks(line.split('\t').map(cleanCell));
+    if(piped) return trimTrailingBlanks(line.split('|').map(cleanCell));
+    if(commaed) return trimTrailingBlanks(delimitedSplit(line, ',').map(cleanCell));
     return [cleanCell(line)];
   };
 
@@ -2339,6 +2461,9 @@ function clRenderAll(){
   renderClSrc();
   renderClRows();
   renderClPreview();
+  // Keep the unmapped hard-stop checkbox in sync with the current mapping
+  // (runs after every parse / unmap / map / remove / move action).
+  if(typeof updateSaveGuardUi === 'function') updateSaveGuardUi();
 }
 
 function renderClSrc(){
@@ -2521,6 +2646,12 @@ async function saveClientFile(){
   const mm = headerMismatchSummary();
   if(mm && !$('#clMismatchCbx').checked){
     toast(`⛔ Save blocked — ${mm.count.toLocaleString()} data row${mm.count===1?'':'s'} have a different column count than the header (${mm.mainCnt}). Tick the override above to save anyway.`);
+    return;
+  }
+  const unmappedCount = cl.rows.filter(r=>r.mapped===null).length;
+  if(unmappedCount > 0 && !($('#clUnmappedCbx') && $('#clUnmappedCbx').checked)){
+    toast(`⛔ Save blocked — ${unmappedCount} client header${unmappedCount===1?'':'s'} not yet mapped. Their output columns would be delivered EMPTY. Map ${unmappedCount===1?'it':'them'} on the left, or tick the override above to save with explicit blank values.`);
+    updateSaveGuardUi();
     return;
   }
 
@@ -2712,8 +2843,10 @@ function bindClientMode(){
 function switchClientMode(mode){
   const isReorder = mode === 'reorder';
   const isClient = mode === 'client';
+  const isValidator = mode === 'validator';
   $('#reorderArea').classList.toggle('hidden', !isReorder);
   $('#clientArea').classList.toggle('hidden', !isClient);
+  $('#validatorArea').classList.toggle('hidden', !isValidator);
   $$('#modeTabs .mtab').forEach(b=>{
     const on = b.dataset.mode === mode;
     b.classList.toggle('on', on);
@@ -2721,7 +2854,472 @@ function switchClientMode(mode){
   if(isClient && cl.rows.length > 0 && clPastePreview.textContent === ''){
     clPastePreview.textContent = `${cl.rows.length} client headers ready`;
   }
+  if(isValidator && typeof valRenderMapping === 'function') valRenderMapping(3);
 }
+
+/* =============================================================
+   Validator tab — post-save re-read comparison
+   Two independent files are streamed row-by-row (constant-ish
+   memory ~ queue of ONE parsed record per side). Header-name maps
+   connect renamed columns; comparison is per parsed CELL using
+   "expected transformation" rules (surrogate→U+FFFD, CP1252→'?',
+   EDML 0x14/0xFE→space, EOL, requoting) so intentional data-
+   cleaning is NOT counted as file damage.
+   ============================================================= */
+const validator = {
+  src:  null,        // File (original)
+  out:  null,        // File (saved output / client delivery)
+  srcMeta: null,     // sniffMeta(file)
+  outMeta: null,
+  srcFmt: null,
+  outFmt: null,
+  srcHdr: null,      // header cell names (raw split)
+  outHdr: null,
+  srcInfo: null,     // {dataRecords, mismatchedRows, unclosedQualifier, multiline, utf16TruncatedTail}
+  outInfo: null,
+  srcRecords: 0,
+  outRecords: 0,
+  mapping: null,     // array per OUTPUT column -> src col index or null(blank)
+  mappingSource: 'none' // 'auto' | 'pasted'
+};
+
+const val = {
+  srcTag: $('#valSrcTag'),
+  outTag: $('#valOutTag'),
+  srcZone: $('#valSrcZone'),
+  outZone: $('#valOutZone'),
+  srcTitle: $('#valSrcTitle'),
+  outTitle: $('#valOutTitle'),
+  mapText: $('#valMapText'),
+  mapPreview: $('#valMapPreview'),
+  mappingSum: $('#valMappingSum'),
+  statusBadge: $('#valStatusBadge'),
+  sumBox: $('#valSumBox'),
+  reportPre: $('#valReportPre'),
+  dlBtn: $('#btnValDownload')
+};
+let valReportText = '';
+
+function valClearMappingSummary(){
+  validator.mapping = null;
+  validator.mappingSource = 'none';
+  val.mappingSum.classList.add('hidden');
+  val.mappingSum.textContent = '';
+  val.mapPreview.textContent = '';
+}
+
+async function valLoadSide(kind, file){
+  if(!file) return;
+  setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', file.name);
+  try{
+    const meta = await sniffMeta(file);
+    const fmtKey = detectFormat(meta.sampleText);
+    if(!FORMATS[fmtKey]) throw new Error('Unrecognized format.');
+    const parsed = await buildFileIndex(file, meta, fmtKey, ({pct})=>{
+      if(pct !== null) setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', `${file.name} ${pct}%`);
+    });
+    if(!parsed) throw new Error('No parseable header (first row is treated as the header).');
+    if(kind === 'src'){
+      validator.src = file; validator.srcMeta = meta; validator.srcFmt = fmtKey;
+      validator.srcHdr = parsed.headerNames; validator.srcInfo = parsed;
+    } else {
+      validator.out = file; validator.outMeta = meta; validator.outFmt = fmtKey;
+      validator.outHdr = parsed.headerNames; validator.outInfo = parsed;
+    }
+    const metaFmt = FORMATS[fmtKey];
+    const zone = kind === 'src' ? val.srcZone : val.outZone;
+    const title = kind === 'src' ? val.srcTitle : val.outTitle;
+    const tag   = kind === 'src' ? val.srcTag  : val.outTag;
+    zone.classList.add('has-file');
+    title.textContent = file.name;
+    tag.textContent = `${meta.label} · ${metaFmt.label} · ${parsed.dataRecords.toLocaleString()} data records · ${parsed.headerNames.length} columns`;
+    valClearMappingSummary();
+    toast(`${kind==='src'?'Original':'Output'} loaded — ${file.name}`);
+  } catch(err){
+    console.error(err);
+    toast('❌ Could not parse ' + file.name + ' — ' + (err && err.message ? err.message : 'error'));
+  } finally { clearBusy(); }
+}
+
+function valFileName(side){
+  if(side === 'src') return validator.src ? validator.src.name : 'original';
+  return validator.out ? validator.out.name : 'output';
+}
+
+/* Convert pasted field map or auto names into OUTPUT-column→SRC index.
+   Also expose the human readable mapping summary string. */
+function valBuildMapFromPairs(pairs){
+  if(!validator.srcHdr || !validator.outHdr){ toast('Load both files first.'); return false; }
+  const srcIdxByName = new Map();
+  validator.srcHdr.forEach((n,i)=> { if(!srcIdxByName.has(n)) srcIdxByName.set(n, []); srcIdxByName.get(n).push(i); });
+
+  const linkFromNames = (srcName, outCol) => {
+    // Find src col by exact then normalized then heuristic name match.
+    const norm = (s)=>String(s).toLowerCase().replace(/[^a-z0-9\uAC00-\uD7A3]+/g,'');
+    if(srcIdxByName.has(srcName) && srcIdxByName.get(srcName).length === 1){
+      return srcIdxByName.get(srcName)[0];
+    }
+    const nk = norm(srcName); if(!nk) return null;
+    // unique normalized collision only allowed when one exact
+    let found = null, collisions = 0;
+    for(const [name, arr] of srcIdxByName){
+      if(name === srcName || norm(name) === nk){
+        found = arr[0]; collisions += arr.length;
+      }
+    }
+    return collisions === 1 ? found : null;
+  };
+
+  const map = [];
+  const usedSrc = new Set();
+  validator.outHdr.forEach((outName, outCol)=>{
+    let srcName = null;
+    if(pairs && pairs.some(p => p.out === outName)){
+      const p = pairs.find(p=>p.out===outName);
+      srcName = p.src;
+    } else if(pairs && pairs.some(p=>p.out===outName)===false && srcIdxByName.has(outName) && srcIdxByName.get(outName).length===1){
+      srcName = outName;
+    } else if(!pairs){
+      // pure auto: treat same-named column as a candidate only when unique.
+      if(srcIdxByName.has(outName) && srcIdxByName.get(outName).length === 1) srcName = outName;
+    }
+    const si = srcName != null ? linkFromNames(srcName, outCol) : null;
+    if(si !== null){
+      if(usedSrc.has(si)){
+        // output already shares a source column? allow 1:N mapping but keep duplicate source.
+      } else usedSrc.add(si);
+    }
+    map.push(si);
+  });
+  validator.mapping = map;
+  return true;
+}
+
+function valMappingSummaryText(){
+  const L = [];
+  validator.mapping.forEach((si, outCol)=>{
+    const outName = validator.outHdr[outCol] != null ? String(validator.outHdr[outCol]) : '(empty)';
+    const srcName = si !== null && validator.srcHdr[si] != null ? String(validator.srcHdr[si]) : '(empty)';
+    L.push(`${String(outCol+1).padStart(2,' ')}. out[${String(outCol+1).padStart(2,' ')}] ${outName}  ←  ${si===null?'(blank)': 'src['+(si+1)+'] '+srcName}`);
+  });
+  return L.join('\n');
+}
+
+function valAutoMap(){
+  if(!validator.src || !validator.out){ toast('Load both files first (original + output).'); return; }
+  const auto = [];
+  validator.outHdr.forEach(outName=> auto.push({ src: outName, out: outName }));
+  valBuildMapFromPairs(auto);
+  validator.mappingSource = 'auto';
+  valRenderMapping(3);
+}
+
+function valParsePastedMap(){
+  if(!validator.src || !validator.out){ toast('Load both files first (original + output).'); return; }
+  const text = val.mapText.value;
+  if(!text || !String(text).trim()){ toast('Paste a 2-column map first.'); return; }
+  // Reuse the existing fieldmap parser: result rows carry {name: picked-name, hint: left hint}.
+  const parsed = parsePastedClientHeaders(text);
+  // Interpret: hint(left)=original name, name(right)=output(납품) name.
+  const pairs = [];
+  parsed.forEach(r=>{
+    const srcN = r.hint || r.name;   // 2-col map: left col = our(orig)
+    const outN = r.name;
+    pairs.push({ src: srcN, out: outN });
+  });
+  // If the paste was a single-column list, user only listed output names:
+  // pair each to its same-named original (auto handled if identical exists).
+  const wasVertical = text.split(/\r\n|\r|\n/).map(l=>l.trim()).filter(Boolean).every(l=>!l.includes('\t')&&!l.includes('|')&&!l.includes(','));
+  if(wasVertical || pairs.length === 0){
+    // fallback: treat every line as an output header name that must equal original name.
+    const lines = String(text).split(/\r\n|\r|\n/).map(l=>l.trim()).filter(Boolean);
+    pairs.length = 0;
+    lines.forEach(l => pairs.push({ src: l, out: l }));
+  }
+  // Ensure each output col is covered; only overwrite cols whose output header matches one of the pair rows.
+  valBuildMapFromPairs(pairs);
+  validator.mappingSource = 'pasted';
+  valRenderMapping(3);
+}
+
+function valRenderMapping(){
+  if(!validator.outHdr || !validator.mapping || validator.mapping.length !== validator.outHdr.length){
+    if(validator.outHdr && validator.srcHdr){
+      val.mappingSum.classList.remove('hidden');
+      val.mapPreview.textContent = 'Mapping needed — paste a 2-col map or press Auto-Match.';
+    }
+    return;
+  }
+  val.mapPreview.textContent = `${validator.mapping.length} output columns mapped (${validator.mapping.filter(x=>x!==null).length} linked, ${validator.mapping.filter(x=>x===null).length} blank)`;
+  val.mappingSum.classList.remove('hidden');
+  val.mappingSum.textContent = valMappingSummaryText();
+}
+
+/* ===== Validator comparison engine ===== */
+function valEscapeForReport(s){ return String(s == null ? '' : s).replace(/\r/g,'\\r').replace(/\n/g,'\\n'); }
+
+/* True when `out` equals `src` OR differs only by an intentional data
+   cleansing the tool performs (surrogate hygiene → U+FFFD, CP1252
+   '?' loss, EDML 0x14/0xFE → space, EOL, requoting/capitalization
+   neutral changes are NOT considered clean by default — but we DO
+   also collapse EOL and quote-layer differences which parsed cells
+   already normalize). Returns null when equal, 'mismatch' when a real
+   value difference, or an {kind} reason when it is an expected rule. */
+const CP1252_TO_UNICODE = (()=>{
+  const m = {};
+  for(const [u,cp] of Object.entries(CP1252_MAP)) m[String.fromCharCode(cp)] = u;
+  return m;
+})();
+
+function valExpectedTransformation(srcRaw, outCell){
+  // 1. Lone surrogate → U+FFFD
+  if(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(srcRaw)){
+    const clean = sanitizeScalarValue(srcRaw);
+    if(clean === outCell) return { kind:'surrogate→U+FFFD' };
+  }
+  // 2. EDML structure protection: embedded FE/0x14 inside value → space
+  if(/[\u00FE\u0014]/.test(srcRaw)){
+    let bad = false, cleaned = '';
+    for(const ch of srcRaw){ if(ch === FE || ch === FE_DELIM){ cleaned += ' '; bad = true; } else cleaned += ch; }
+    if(bad && cleaned === outCell) return { kind:'EDML 0x14/0xFE→space' };
+  }
+  // 3. Windows-1252 unrepresentable → '?' (one char at a time allowed)
+  if(validator.outMeta && validator.outMeta.kind === 'cp1252'){
+    let lostAny = false;
+    let enc = '';
+    for(const ch of srcRaw){
+      const cp = ch.codePointAt(0);
+      if(cp <= 0xFF && CP1252_MAP[ch] === undefined) { enc += ch; continue; }
+      if(CP1252_MAP[ch] !== undefined){ enc += ch; continue; }
+      enc += '?'; lostAny = true;
+    }
+    if(lostAny && enc === outCell) return { kind:'CP1252 unrepresentable→?' };
+  }
+  // 4. whitespace/EOL-only differences (CRLF/LF/CR collapsed, whitespace preserved)
+  const eolNorm = (s)=> String(s||'').replace(/\r\n|\r|\n/g,'\n');
+  if(eolNorm(srcRaw) === eolNorm(outCell) && srcRaw !== outCell) return { kind:'EOL normalization' };
+  return null;
+}
+
+/* Row producers push records into per-side 1-record boxes; the consumer pulls
+   A then B alternately so the two files are paired strictly by output order
+   while staying at ONE buffered record per side regardless of file size.
+   The FIRST record from each side (the header) is consumed before data pairing
+   begins. When one side hits EOF the remaining records of the other side are
+   reported as orphan rows so a missing/dropped row is caught. */
+function valStreamPair(desc, onPair){
+  return new Promise((resolve,reject)=>{
+    function mkBox(){ return { val:null, populated:false, consumers:[], producers:[] }; }
+    const boxA = mkBox(), boxB = mkBox();
+    let pairErr = null;
+
+    async function put(side, rec){
+      const b = side === 'a' ? boxA : boxB;
+      while(b.populated) await new Promise(r=>b.producers.push(r));
+      b.val = rec; b.populated = true;
+      const c = b.consumers.shift();
+      if(c) c();
+    }
+    async function get(side){
+      const b = side === 'a' ? boxA : boxB;
+      while(!b.populated) await new Promise(r=>b.consumers.push(r));
+      const r = b.val; b.populated = false;
+      const p = b.producers.shift();
+      if(p) p();
+      return r; // null is the EOF marker and is never produced again by that side
+    }
+    async function runSide(side, cfg){
+      try{ await scanFile(cfg.file, cfg.meta, cfg.fmt, async rec => { await put(side, rec); }); }
+      catch(e){ pairErr = e; }
+      await put(side, null);
+    }
+
+    const pA = runSide('a', desc.a);
+    const pB = runSide('b', desc.b);
+
+    (async () => {
+      // buffer/consume declaration hoisting: header (first) record of each file
+      await get('a');
+      await get('b');
+      let aEnd = false, bEnd = false, row = 0;
+      for(;;){
+        let recA = null, recB = null;
+        if(!aEnd){ const v = await get('a'); if(v === null) aEnd = true; else recA = v; }
+        if(!bEnd){ const v = await get('b'); if(v === null) bEnd = true; else recB = v; }
+        if(pairErr) throw pairErr;
+        if(aEnd && bEnd){ await onPair(null, null, null); return; }
+        // exactly one side may have reached EOF: that iteration reports the
+        // other side's current record as orphan (missing counterpart).
+        if(aEnd && !bEnd){ await onPair(null, recB, row); continue; }
+        if(!aEnd && bEnd){ await onPair(recA, null, row); continue; }
+        await onPair(recA, recB, row);
+        row++;
+      }
+    })().then(resolve, reject);
+  });
+}
+
+function valSplitRow(fmtKey, raw){ try{ return FORMATS[fmtKey].split(String(raw=='undefined'?'':raw)); }catch(e){ return []; } }
+
+async function valRunValidate(){
+  if(!validator.src || !validator.out){ toast('Both original and output files are required.'); return; }
+  if(!validator.mapping || validator.mapping.length !== validator.outHdr.length){
+    toast('Build a column mapping first — ✨ Auto-Match or paste the field map.');
+    return;
+  }
+  setBusy('Validating…', 'Reading original + output records (streaming). First row of each is the header, which is skipped for data comparison.');
+  const stat = { rows:0, ok:0, expected:0, mismatch:0, skipBlank:0, firstMis: [], srcExtra:0, outExtra:0 };
+
+  const srcFmt = FORMATS[validator.srcFmt];
+  const outFmt = FORMATS[validator.outFmt];
+  const srcSkip = validator.srcInfo && validator.srcInfo.unclosedQualifier ? validator.srcInfo.unclosedQualifier : null;
+  const outSkip = validator.outInfo && validator.outInfo.unclosedQualifier ? validator.outInfo.unclosedQualifier : null;
+
+  const blankOk = (srcCell, outCell) => !!(String(srcCell||'') === '' && String(outCell||'') === '');
+
+  await valStreamPair(
+    {
+      a: { file: validator.src, meta: validator.srcMeta, fmt: validator.srcFmt },
+      b: { file: validator.out, meta: validator.outMeta, fmt: validator.outFmt }
+    },
+    async (recA, recB, rowIdx)=>{
+      // streamPair calls with (null,null,null) at the very end; treat as flush marker.
+      if(recA === null && recB === null && rowIdx === null) return;
+      setBusy('Validating…', `row ${Math.max(stat.rows+1,1).toLocaleString()} · ${(validator.src && validator.src.size ? (validator.src.size/1048576).toFixed(1) : '?')} MB side`);
+      stat.rows++;
+      const cellsA = recA === null ? null : valSplitRow(validator.srcFmt, recA);
+      const cellsB = recB === null ? null : valSplitRow(validator.outFmt, recB);
+      if(recA !== null && recB === null){ stat.outExtra++; stat.mismatch++; if(stat.mismatch<=5 && !stat.firstMis.some(x=>x.row===rowIdx)) stat.firstMis.push({row:rowIdx, col:0, src: valEscapeForReport(recA), out:'<missing row>'}); return; }
+      if(recB !== null && recA === null){ stat.srcExtra++; stat.mismatch++; if(stat.mismatch<=5 && !stat.firstMis.some(x=>x.row===rowIdx)) stat.firstMis.push({row:rowIdx, col:0, src:'<missing row>', out: valEscapeForReport(recB)}); return; }
+
+      for(let oi = 0; oi < validator.mapping.length; oi++){
+        const si = validator.mapping[oi];
+        const srcRaw = si !== null && cellsA && si < cellsA.length ? cellsA[si] : '';
+        const outRaw = cellsB && oi < cellsB.length ? cellsB[oi] : '';
+        stat.ok++;
+        const sv = String(srcRaw == null ? '' : srcRaw).trim();
+        const ov = String(outRaw == null ? '' : outRaw).trim();
+        if(sv === ov){ continue; }
+        // unlinked output (blank expected) — if source non-empty because mapping missing it is a mapping issue; if both end empty equal continue already.
+        const exp = valExpectedTransformation(String(srcRaw==null?'':srcRaw), String(outRaw==null?'':outRaw));
+        if(exp){ stat.expected++; continue; }
+        stat.mismatch++;
+        if(stat.firstMis.length < 5){
+          stat.firstMis.push({ row: rowIdx+1, col: oi+1,
+            src: valEscapeForReport(srcRaw), out: valEscapeForReport(outRaw),
+            srcName: validator.srcHdr && si!=null ? validator.srcHdr[si] : validator.outHdr ? validator.outHdr[oi] : '',
+            outName: validator.outHdr ? validator.outHdr[oi] : '' });
+        }
+      }
+      if(stat.rows % 500 === 0) await new Promise(r=>setTimeout(r,0));
+    }
+  );
+
+  // Structural checks
+  const srcRec = validator.srcInfo ? (validator.srcInfo.dataRecords||0) : stat.rows;
+  const outRec = validator.outInfo ? (validator.outInfo.dataRecords||0) : stat.rows;
+  const recOk = srcRec === outRec && stat.mismatch === 0 || (stat.mismatch>0) === false && srcRec === outRec;
+  const recMatch = srcRec === outRec;
+  const headerCountMatch = validator.srcHdr.length === validator.outHdr.length;
+  const failed = stat.mismatch > 0 || srcRec !== outRec || !headerCountMatch || !!srcSkip || !!outSkip;
+  const status = failed ? 'FAIL' : (stat.expected > 0 ? 'PASS (with expected transformations)' : 'PASS');
+  valReportText = valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status });
+  valShowResult(status, stat, { srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip });
+  toast('✅ Validation complete — ' + status + (stat.expected ? ` (${stat.expected} expected cleansing)` : ''));
+  clearBusy();
+}
+
+function valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status }){
+  const L = [];
+  const A = (...x)=> L.push(x.filter(v=>v!==null&&v!==undefined&&v!=='').join(''));
+  A('DAT FIELD REORDER — POST-SAVE VALIDATOR (re-read of actual files)');
+  A('==================================================================');
+  A('Generated (UTC)  : ', new Date().toISOString());
+  A('Original         : ', validator.src ? validator.src.name : '—', '  ', validator.src && validator.srcMeta ? validator.srcMeta.label + ' · ' + FORMATS[validator.srcFmt].label : '');
+  A('Output           : ', validator.out ? validator.out.name : '—', '  ', validator.out && validator.outMeta ? validator.outMeta.label + ' · ' + FORMATS[validator.outFmt].label : '');
+  A('Scope            : This report RE-READS the two files on disk and compares');
+  A('                   parsed cell text. It is NOT the in-memory transformation');
+  A('                   counter used by the save-time report.');
+  A('');
+  A('== Record reconciliation (re-read) ==');
+  A('Source data rows : ', (srcRec||0).toLocaleString());
+  A('Output data rows : ', (outRec||0).toLocaleString());
+  A('Record count     : ', recMatch ? 'MATCH' : 'MISMATCH ❌');
+  A('Header columns   : orig ', validator.srcHdr ? validator.srcHdr.length : '?', ' / out ', validator.outHdr ? validator.outHdr.length : '?', headerCountMatch ? ' (match)' : ' (mismatch ❌)');
+  if(srcSkip)  A('⚠ Original final record #', srcSkip, ' has an unclosed qualifier.');
+  if(outSkip)  A('⚠ Output  final record #', outSkip, ' has an unclosed qualifier.');
+  A('');
+  A('== Cell-level comparison ==');
+  A('Cells compared   : ', stat.ok.toLocaleString());
+  A('Identical        : ', (stat.ok - stat.mismatch - stat.expected).toLocaleString());
+  A('Expected cleanse : ', stat.expected.toLocaleString(), ' (surrogate→U+FFFD, CP1252→?, EDML 0x14/0xFE→space, EOL)');
+  A('Mismatch         : ', stat.mismatch.toLocaleString());
+  A('Extra src rows   : ', stat.srcExtra, ' / Extra out rows : ', stat.outExtra);
+  A('');
+  if(stat.firstMis.length){
+    A('First mismatches (up to 5):');
+    stat.firstMis.forEach(m=>{
+      A(`  row ${m.row}, col ${m.col}`, m.srcName?` [${m.srcName} → ${m.outName||m.outName===''?'(blank)':m.outName}]`: '');
+      A('    source  : ', m.src === '' ? '(empty)' : m.src);
+      A('    output  : ', m.out === '' ? '(empty)' : m.out);
+    });
+    A('');
+  }
+  A('== Status         : ', status);
+  return L.join('\n') + '\n';
+}
+
+function valShowResult(status, stat, extra){
+  const badge = val.statusBadge;
+  badge.textContent = status;
+  val.statusBadge.className = 'badge ' + (status.startsWith('PASS') ? 'ok' : 'red');
+  val.reportPre.textContent = valReportText;
+  const box = val.sumBox;
+  box.classList.remove('hidden');
+  box.innerHTML = '';
+  const mk = (k,v)=>{
+    const d=document.createElement('div'); d.className='stat-tile';
+    const kk=document.createElement('div'); kk.className='k'; kk.textContent=k;
+    const vv=document.createElement('div'); vv.className='v'; vv.textContent=v;
+    d.append(kk,vv); box.appendChild(d);
+  };
+  mk('Records', extra ? `${extra.srcRec.toLocaleString()} ↔ ${extra.outRec.toLocaleString()}` : '—');
+  mk('Cells compared', stat.ok.toLocaleString());
+  mk('Identical', (stat.ok - stat.mismatch - Math.max(stat.expected,0)).toLocaleString());
+  mk('Expected cleanse', stat.expected.toLocaleString());
+  mk('Mismatch', stat.mismatch.toLocaleString());
+  val.dlBtn.disabled = false;
+}
+
+/* ===== Validator events & file drop wiring ===== */
+function wireValDrop(el, input, cb){
+  el.addEventListener('click', ()=> input.click());
+  el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); input.click(); } });
+  input.addEventListener('change', e=>{ const f = e.target.files && e.target.files[0]; if(f) cb(f); e.target.value=''; });
+  ['dragenter','dragover'].forEach(ev=> el.addEventListener(ev, e=>{ e.preventDefault(); el.classList.add('over'); }));
+  ['dragleave','drop'].forEach(ev=> el.addEventListener(ev, e=>{ e.preventDefault(); el.classList.remove('over'); }));
+  el.addEventListener('drop', e=>{
+    e.preventDefault();
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) cb(f);
+  });
+}
+
+function bindValidator(){
+  const srcInput = $('#valSrcInput');
+  const outInput = $('#valOutInput');
+  wireValDrop(val.srcZone, srcInput, (f)=> valLoadSide('src', f));
+  wireValDrop(val.outZone, outInput, (f)=> valLoadSide('out', f));
+  $('#btnValMapParse').addEventListener('click', valParsePastedMap);
+  $('#btnValAutoMap').addEventListener('click', valAutoMap);
+  $('#btnValClearMap').addEventListener('click', ()=>{ valClearMappingSummary(); val.mapText.value=''; });
+  $('#btnValidate').addEventListener('click', ()=> valRunValidate());
+  val.dlBtn.addEventListener('click', ()=>{
+    if(valReportText) downloadTextFile('delivery_validation.txt', valReportText);
+  });
+}
+
+bindValidator();
 
 /* =============================================================
    Events
@@ -3028,16 +3626,18 @@ function buildAuditReport(info){
   A('BOM              : ', state.detected ? (state.detected.hasBOM ? 'present' : 'none') : '—');
   A('');
 
-  A('== Record & Column Reconciliation ==');
+  A('== Transformation Reconciliation (variable count check) ==');
   A('Source data records (header excluded) : ', (p.dataRecords||0).toLocaleString());
   A('Output records written                : ', (info.writtenRecords||0).toLocaleString());
   const recOk = (p.dataRecords||0) === (info.writtenRecords||0);
-  A('100% record reconciliation            : ', recOk ? 'YES ✅' : 'NO ❌');
+  A('Transformation reconciliation         : ', recOk ? 'MATCH (as transformed in memory)' : 'MISMATCH ❌');
   A('Column-count mismatch rows            : ', mm ? mm.count.toLocaleString() : '0',
     mm ? ('  [' + mm.detail + ' → headers have ' + mm.mainCnt + ' cols]') : '  (all match header)');
   A('Multiline (quoted newline) records    : ', (p.multiline||0).toLocaleString());
   A('Column-count override used            : ', info.overrideUsed ? 'YES' : 'no');
-  A('Record count is exact by construction : rows are not split/merged during streaming scan.');
+  A('NOTE. Row counts above reflect the in-memory transformation loop ONLY.');
+  A('They are NOT a re-read of the saved file, so file-system write errors /');
+  A('truncated trailing EOL are not detected by the counter above.');
   A('');
 
   A('== Data Loss Report ==');

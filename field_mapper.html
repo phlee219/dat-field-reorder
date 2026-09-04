@@ -3189,19 +3189,25 @@ async function valRunValidate(){
       stat.rows++;
       const cellsA = recA === null ? null : valSplitRow(validator.srcFmt, recA);
       const cellsB = recB === null ? null : valSplitRow(validator.outFmt, recB);
-      if(recA !== null && recB === null){ stat.outExtra++; stat.mismatch++; if(stat.mismatch<=5 && !stat.firstMis.some(x=>x.row===rowIdx)) stat.firstMis.push({row:rowIdx, col:0, src: valEscapeForReport(recA), out:'<missing row>'}); return; }
-      if(recB !== null && recA === null){ stat.srcExtra++; stat.mismatch++; if(stat.mismatch<=5 && !stat.firstMis.some(x=>x.row===rowIdx)) stat.firstMis.push({row:rowIdx, col:0, src:'<missing row>', out: valEscapeForReport(recB)}); return; }
+      // Side a = original, side b = output. A record present only on the ORIGINAL
+      // means the OUTPUT is missing that row (srcExtra); a record present only on
+      // the OUTPUT means the output contains a row absent from the original (outExtra).
+      if(recA !== null && recB === null){ stat.srcExtra++; stat.mismatch++; if(stat.mismatch<=5 && !stat.firstMis.some(x=>x.row===rowIdx)) stat.firstMis.push({row:rowIdx, col:0, src: valEscapeForReport(recA), out:'<missing in output>'}); return; }
+      if(recB !== null && recA === null){ stat.outExtra++; stat.mismatch++; if(stat.mismatch<=5 && !stat.firstMis.some(x=>x.row===rowIdx)) stat.firstMis.push({row:rowIdx, col:0, src:'<missing in original>', out: valEscapeForReport(recB)}); return; }
 
       for(let oi = 0; oi < validator.mapping.length; oi++){
         const si = validator.mapping[oi];
         const srcRaw = si !== null && cellsA && si < cellsA.length ? cellsA[si] : '';
         const outRaw = cellsB && oi < cellsB.length ? cellsB[oi] : '';
         stat.ok++;
-        const sv = String(srcRaw == null ? '' : srcRaw).trim();
-        const ov = String(outRaw == null ? '' : outRaw).trim();
+        // Compare the RAW parsed values — never trim. Leading/trailing spaces in
+        // File Path / Extracted Text are meaningful data in eDiscovery; trimming
+        // would silently approve lost whitespace.
+        const sv = String(srcRaw == null ? '' : srcRaw);
+        const ov = String(outRaw == null ? '' : outRaw);
         if(sv === ov){ continue; }
         // unlinked output (blank expected) — if source non-empty because mapping missing it is a mapping issue; if both end empty equal continue already.
-        const exp = valExpectedTransformation(String(srcRaw==null?'':srcRaw), String(outRaw==null?'':outRaw));
+        const exp = valExpectedTransformation(sv, ov);
         if(exp){ stat.expected++; continue; }
         stat.mismatch++;
         if(stat.firstMis.length < 5){
@@ -3215,13 +3221,18 @@ async function valRunValidate(){
     }
   );
 
-  // Structural checks
+  // Structural checks. NOTE: output having FEWER columns than the original is the
+  // normal result of a field-removal operation — it is reported but does NOT fail.
+  // Only REAL structure/data damage fails the run: cell mismatches, missing rows,
+  // or structural breakage (unclosed qualifier / truncated tail).
   const srcRec = validator.srcInfo ? (validator.srcInfo.dataRecords||0) : stat.rows;
   const outRec = validator.outInfo ? (validator.outInfo.dataRecords||0) : stat.rows;
-  const recOk = srcRec === outRec && stat.mismatch === 0 || (stat.mismatch>0) === false && srcRec === outRec;
-  const recMatch = srcRec === outRec;
+  const recMatch = srcRec === outRec; // informational only; row-CELL checks below remain authoritative when equal
+  const recOk = recMatch && stat.mismatch === 0;
+  // Column-count matters only for data pairing; mapping already guarantees each
+  // output column maps to an original col (or blank). Fewer output columns is normal.
   const headerCountMatch = validator.srcHdr.length === validator.outHdr.length;
-  const failed = stat.mismatch > 0 || srcRec !== outRec || !headerCountMatch || !!srcSkip || !!outSkip;
+  const failed = stat.mismatch > 0 || srcRec !== outRec || !!srcSkip || !!outSkip;
   const status = failed ? 'FAIL' : (stat.expected > 0 ? 'PASS (with expected transformations)' : 'PASS');
   valReportText = valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status });
   valShowResult(status, stat, { srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip });

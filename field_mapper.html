@@ -258,7 +258,7 @@
 
   .light-txt{color:var(--muted)}
 
-  /* ============ Mode tabs (원본 + 클라이언트 매핑) ============ */
+  /* ============ Mode tabs (Reorder + Client mapping) ============ */
   .mode-tabs{
     display:flex;gap:8px;background:var(--card);border:1px solid var(--line);
     border-radius:var(--radius);padding:7px;box-shadow:var(--shadow);margin-bottom:2px;
@@ -300,13 +300,13 @@
     flex:0 0 26px;height:21px;border-radius:6px;background:#e6ebf3;color:#526079;
     font-size:10.5px;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;
   }
-  .client-row .cname{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
   .client-row .cmap{
-    flex:0 1 auto;max-width:46%;display:inline-flex;align-items:center;gap:5px;
+    flex:0 0 auto;max-width:46%;min-width:0;
+    display:inline-flex;align-items:center;gap:5px;
     background:#eef4ff;border:1px solid #cedcf6;border-radius:8px;padding:3px 8px;
-    font-size:11.5px;color:#24509b;white-space:nowrap;overflow:hidden;min-width:0;
+    font-size:11.5px;color:#24509b;white-space:nowrap;overflow:hidden;
   }
-  .client-row .cmap b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .client-row .cmap b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   .client-row .cmap.un{background:#f4f6f9;border-color:#e1e5ec;color:#8595a8}
   .client-row .cmap .unlink{
     flex:none;width:16px;height:16px;border-radius:5px;background:#e6edF9;color:#3f5f9c;
@@ -314,6 +314,7 @@
   }
   .client-row .cmap .unlink:hover{background:#fdeaea;color:var(--bad)}
   .cl-dir{color:var(--brand);flex:none;font-size:12px;font-weight:600}
+  .client-row .cname{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
   .badge-map{background:#ecf7ee;color:var(--ok)}
   .badge-empty{background:#fff2d6;color:var(--warn)}
   .badge-src{background:#eef2f7;color:#54637a;display:inline-block;font-size:10px;font-weight:600}
@@ -401,11 +402,11 @@
   <section id="workspace" class="hidden">
 
     <div class="mode-tabs" id="modeTabs">
-      <button class="mtab on" type="button" data-mode="reorder" title="자유롭게 원본 필드를 drag / 순서변경 / 제거">
-        <span class="mi">🔀</span><span>Reorder Mode<small>필드 순서 자유 재배열</small></span>
+      <button class="mtab on" type="button" data-mode="reorder" title="Reorder source fields freely — drag / reorder / remove">
+        <span class="mi">🔀</span><span>Reorder Mode<small>Reorder source fields freely</small></span>
       </button>
-      <button class="mtab" type="button" data-mode="client" title="클라이언트 헤더 붙여넣기 → 우리 필드 연결 → 저장">
-        <span class="mi">📋</span><span>Client Header Map<small>클라이언트 헤더에 필드 매핑</small></span>
+      <button class="mtab" type="button" data-mode="client" title="Paste client headers → link our fields → save">
+        <span class="mi">📋</span><span>Client Header Map<small>Map fields to client headers</small></span>
       </button>
     </div>
 
@@ -495,16 +496,16 @@
 
       <div class="card" id="clPasteCard" style="margin-bottom:18px">
         <div class="card-h">
-          <h2>📋 Step 1 — 클라이언트 헤더 붙여넣기</h2>
+          <h2>📋 Step 1 — Paste Client Headers</h2>
           <span class="meta" id="clHeaderInfo"></span>
         </div>
         <p style="font-size:12.8px;color:var(--muted);margin-bottom:9px;line-height:1.7">
-          엑셀에서 <b>클라이언트가 요구하는 헤더 행(또는 세로 줄 목록)</b>을 복사해서 아래에 붙여넣으세요.
-          아래 <b>클라이언트 헤더 순서 = 최종 출력 헤더 순서</b>가 됩니다.
-          좌우 2열(필드맵)을 붙여넣어도 되며, 이 경우 <b>오른쪽 열</b>이 출력 헤더로 사용됩니다.
+          Copy the <b>header row the client requires</b> (or a vertical single-column list) from Excel and paste it below.
+          The <b>order pasted here becomes the final output header order</b>.
+          You can also paste a 2-column field map (left = our field, right = client header); in that case the <b>right column</b> is used as the output header.
         </p>
         <textarea id="clPasteText" spellcheck="false"
-          placeholder="Control Number&#10;Custodian&#10;Bates Number&#10;... (한 줄 = 헤더 1개)&#10;&#10;또는 엑셀에서 한 행 드래그 복사 :&#10;Control Number&#9;Custodian&#9;Bates Number&#9;...&#10;&#10;또는 필드맵 2열(좌:우리필드 / 우:클라이언트헤더) 복사 :&#10;CNUMBER&#9;Control Number&#10;CUSTODIAN&#9;Custodian&#10;..."></textarea>
+          placeholder="Control Number&#10;Custodian&#10;Bates Number&#10;... (one header per line)&#10;&#10;Or copy a single Excel row:&#10;Control Number&#9;Custodian&#9;Bates Number&#9;...&#10;&#10;Or a 2-column field map (our field / client header):&#10;CNUMBER&#9;Control Number&#10;CUSTODIAN&#9;Custodian&#10;..."></textarea>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:11px">
           <button class="btn primary" id="btnClParsePaste">✔ Parse Header List</button>
           <button class="btn" id="btnClClearPaste">Clear</button>
@@ -517,27 +518,27 @@
         <!-- Our source fields -->
         <article class="card client-pane" id="clSrcPane">
           <div class="pane-head">
-            <h3>📋 Our Fields (원본 .dat 필드) <span id="clSrcCount" class="badge gray"></span></h3>
+            <h3>📋 Our Fields (Original .dat fields) <span id="clSrcCount" class="badge gray"></span></h3>
           </div>
           <div class="search-box">
             <span class="ico">🔍</span>
             <input type="text" id="clSrcSearch" placeholder="Search our fields…" autocomplete="off">
           </div>
           <div class="toolbar">
-            <button class="btn sm" id="btnClUnlinkAll">✕ 매핑 전체 해제</button>
-            <button class="btn sm" id="btnClAutoGuess" title="헤더 이름이 비슷한 우리 필드를 자동으로 1차 연결 (이름 정규화 비교)">✨ 자동 매칭 시도</button>
+            <button class="btn sm" id="btnClUnlinkAll">✕ Unmap All</button>
+            <button class="btn sm" id="btnClAutoGuess" title="Automatically match client headers to similarly named source fields (normalized name comparison)">✨ Auto-Match</button>
           </div>
           <div class="listbox" id="clSrcList"></div>
           <div class="preview-note" style="margin-top:8px;margin-bottom:0">
-            <b>사용법:</b> ① 우측에서 클라이언트 헤더 행을 클릭 ② 좌측의 우리 필드를 클릭 → 그 자리에 값 연결.
+            <b>How to use:</b> ① click a client header row on the right ② click one of our fields on the left → its value is linked to that slot.
           </div>
         </article>
 
         <!-- Client headers -->
         <article class="card client-pane">
           <div class="pane-head">
-            <h3>📑 Client Headers (최종 출력 순서) <span id="clRowCountTxt" class="badge gray"></span></h3>
-            <div class="meta">행 클릭 후 ← 좌측 필드 클릭으로 매핑</div>
+            <h3>📑 Client Headers (Final Output Order) <span id="clRowCountTxt" class="badge gray"></span></h3>
+            <div class="meta">Select a row, then click a field on the left to map it</div>
           </div>
           <div class="toolbar">
             <button class="btn sm" id="btnClMoveTop">⤒ Top</button>
@@ -549,12 +550,12 @@
           </div>
           <div id="clRowsWrap">
             <div class="empty-target-box" id="clEmptyRows">
-              위에 클라이언트 헤더를 붙여넣고 <b>Parse</b>를 누르면 여기에 표시됩니다.
+              Paste the client headers above and press <b>Parse</b> — they will be listed here.
             </div>
             <div class="listbox hidden" id="clRowsList"></div>
           </div>
           <div class="warning-box hidden" id="clWarnUnmapped" style="margin-top:8px">
-            <span>⚠️ <b>아직 매핑 안 된 클라이언트 헤더 N개</b> — 이 헤더는 출력엔 포함되지만 데이터 값은 비어서 나갑니다.</span>
+            <span>⚠️ <b>N client headers not yet mapped</b> — these headers are still included in the output, but their data values will be empty.</span>
           </div>
         </article>
       </div>
@@ -563,9 +564,9 @@
       <article class="card" style="margin-top:18px">
         <div class="card-h">
           <h2>🔎 Preview — Client Header Order</h2>
-          <span class="meta">첫 4개 데이터 행 · <span id="clPreviewBadge"></span></span>
+          <span class="meta">First 4 data records &middot; <span id="clPreviewBadge"></span></span>
         </div>
-        <div class="preview-note" id="clPreviewNote">클라이언트 헤더 목록을 붙여넣고 필드를 연결하면 이곳에서 출력을 미리 볼 수 있습니다.</div>
+        <div class="preview-note" id="clPreviewNote">After you paste the client header list and link fields, the resulting output is shown here.</div>
         <div class="table-wrap hidden" id="clPreviewWrap">
           <table id="clPreviewTable">
             <thead id="clPreviewHead"></thead>
@@ -581,7 +582,7 @@
           <span class="meta" id="clSaveFormatInfo"></span>
         </div>
         <div class="warning-box" style="margin-top:0;margin-bottom:12px">
-          저장된 파일의 헤더 행은 <b>위 클라이언트 헤더 순서 그대로</b>이며, 매핑된 우리 필드의 값이 그 위치로 배치됩니다. 매핑 없는 곳은 빈 값입니다.
+          The saved file&rsquo;s header row uses <b>the exact client header order above</b>, with the linked source field values placed in each position. Unmapped positions are written as empty values.
         </div>
         <div class="save-area" style="margin-top:0">
           <div class="grow">
@@ -2113,7 +2114,8 @@ function renderClRows(){
     }
     // Clicking the row selects it; clicking a mapped chip (except its ✕) also selects
     chip.addEventListener('click', e=>{ e.stopPropagation(); selectClRow(pos); });
-    row.append(no, nm, chip);
+    // 매핑 칩을 좌측(번호 옆)에 두면 우측이 비워져 헤더명이 넓게 잘 보인다.
+    row.append(no, chip, nm);
     row.addEventListener('click', ()=> selectClRow(pos));
     clRowsList.appendChild(row);
   });

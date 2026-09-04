@@ -592,6 +592,7 @@
 <input id="outName" spellcheck="false" type="text" value="reordered.dat"/>
 </div>
 <button class="btn-big" id="btnSave">⬇ Download New File</button>
+<button class="btn primary" disabled="" id="btnValidateLastReorder" title="Re-read the file you just saved and compare it with the loaded original — mapping is seeded automatically." type="button">🧪 Validate saved output</button>
 </div>
 </article>
 </div><!-- /reorderArea -->
@@ -714,6 +715,7 @@ CUSTODIAN	Custodian
 <input id="clOutName" spellcheck="false" type="text" value="client_mapped.dat"/>
 </div>
 <button class="btn-big" id="btnClSave">⬇ Download Client File</button>
+<button class="btn primary" disabled="" id="btnValidateLastClient" title="Re-read the client file you just saved and compare it with the loaded original — mapping is seeded automatically." type="button">🧪 Validate saved output</button>
 </div>
 </article>
 </div><!-- /clGridArea -->
@@ -2333,9 +2335,95 @@ function safeOutputName(name, fallback){
   return cleaned || fallback;
 }
 
+/* ---------- Post-save 1-Click validation ----------
+   After a successful save the actual saved file is captured by the sink.
+   The button re-runs the real-file validator with the ORIGINAL already in
+   state and the mapping seeded from the save itself (no re-select, no
+   manual paste, identity pre-selected when one is mapped). */
+
+// Declared here (not at the bottom of this block): the button-sync code runs
+// during initial binding below, BEFORE the save-sink section is reached, so
+// the bindings must already exist — otherwise a TDZ ReferenceError kills the
+// whole script at load time.
+let lastSavedOutput = null;   // File (ready for a post-save re-read scan)
+let lastSavedMode = null;     // 'reorder' | 'client' | null
+
+function syncValidateButtons(){
+  const enable = !!lastSavedOutput;
+  const reBtn = $('#btnValidateLastReorder');
+  const clBtn = $('#btnValidateLastClient');
+  if(reBtn) reBtn.disabled = !(enable && lastSavedMode === 'reorder');
+  if(clBtn) clBtn.disabled = !(enable && lastSavedMode === 'client');
+}
+
+async function launchSavedValidation(){
+  const mode = lastSavedMode;
+  if(!state || !state.file || !state.detected){
+    toast('⚠️ Load a FE/DC4 source file first, then save it, then validate.');
+    return;
+  }
+  if(!lastSavedOutput){
+    toast('⚠️ The saved output file is not available in this session. Re-select files manually in the Validator tab.');
+    return;
+  }
+  const mapSeed = mode === 'client' ? clMapArray() : (state.orderTarget ? state.orderTarget.slice() : null);
+  if(!mapSeed){
+    toast('⚠️ No mapping available. Save a reordered/client file, or drop two files in the Validator tab.');
+    return;
+  }
+  requestAnimationFrame(()=> switchClientMode('validator'));
+  try{
+    // Load both real files into the validator (source = already-loaded File).
+    // autoMap=false: the mapping/identity is seeded from the save below, so the
+    // generic "auto-match after both loads" behaviour must not run here.
+    await valLoadSide('src', state.file, false);
+    await valLoadSide('out', lastSavedOutput, false);
+    if(!validator.srcHdr || !validator.outHdr){
+      toast('⛔ Validator could not build headers for the source/output pair.');
+      return;
+    }
+    if(validator.mapping && mapSeed.length !== validator.outHdr.length){
+      toast(`⛔ Saved mapping length (${mapSeed.length}) does not match output columns (${validator.outHdr.length}). Use manual mapping.`);
+      return;
+    }
+    validator.mapping = mapSeed;
+    validator.mappingSource = (mode === 'client' ? 'saved client mapping' : 'saved reorder mapping');
+    validator.expectedBlank = new Set();
+    if(mode === 'client'){
+      // Output columns that were intentionally written EMPTY become Expected Blank
+      // so validation doesn't treat the deliberate blanks as a mismatch.
+      mapSeed.forEach((si, oi)=>{ if(si === null) validator.expectedBlank.add(oi); });
+    }
+    // B-4: auto-select an identity column that is actually mapped.
+    valSelectMappedIdentity();
+    valRenderMapping(3);
+    toast('🧪 Ready — validating the saved file against the loaded original…');
+    // Run after the validator area is switched in and rendering settles.
+    setTimeout(()=> valRunValidate(), 30);
+  } catch(err){
+    console.error(err);
+    toast('❌ Could not start one-click validation: ' + (err && err.message ? err.message : 'unknown'));
+  }
+}
+
+/* 1-Click buttons live with their Save cards but are wired here so both
+   Save paths (Reorder and Client) share the exact same flow. */
+(function(){
+  const rBtn = $('#btnValidateLastReorder');
+  if(rBtn) rBtn.addEventListener('click', ()=> launchSavedValidation());
+  const cBtn = $('#btnValidateLastClient');
+  if(cBtn) cBtn.addEventListener('click', ()=> launchSavedValidation());
+  syncValidateButtons();
+})();
+
 /* =============================================================
    Save — second streaming pass, constant memory
    ============================================================= */
+
+/* lastSavedOutput / lastSavedMode are declared above with the 1-Click
+   validator block (required so load-time button sync cannot hit a TDZ
+   ReferenceError). createSink().finish() and the save cores below assign
+   them after the destination is fully written. */
 
 /* Output sink abstraction. onWrite(bytes) is invoked for EVERY byte
    handed to writeBytes — BOM and merged chunks alike — so an audit
@@ -2415,6 +2503,9 @@ function createSink(onWrite){
       if(writable){
         await writable.close();
         writable = null;
+        // FSA stream: capture the real on-disk file for post-save re-read.
+        try { lastSavedOutput = await fileHandle.getFile(); }
+        catch(e){ lastSavedOutput = null; }
       } else {
         const blob = new Blob(chunks, { type:'application/octet-stream' });
         const url = URL.createObjectURL(blob);
@@ -2425,6 +2516,9 @@ function createSink(onWrite){
         a.click();
         a.remove();
         setTimeout(()=>URL.revokeObjectURL(url), 3000);
+        try {
+          lastSavedOutput = new File([blob], downloadName, { type:'application/octet-stream', lastModified: Date.now() });
+        } catch(e){ lastSavedOutput = null; }
         return blob.size;
       }
       return null;
@@ -2598,6 +2692,8 @@ async function saveFileCore(){
         safeOpenAuditModal(auditReportNameFor(downloadName), rep.text, rep.status);
       }catch(e){ console.warn('Audit report not generated:', e); }
     }
+    lastSavedMode = 'reorder';
+    syncValidateButtons();
   } catch(err){
     if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
     console.error(err);
@@ -3107,6 +3203,8 @@ async function saveClientFileCore(){
         safeOpenAuditModal(auditReportNameFor(downloadName), rep.text, rep.status);
       }catch(e){ console.warn('Audit report not generated:', e); }
     }
+    lastSavedMode = 'client';
+    syncValidateButtons();
   } catch(err){
     if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
     console.error(err);
@@ -3281,8 +3379,9 @@ function valClearMappingSummary(){
   val.mapPreview.textContent = '';
 }
 
-async function valLoadSide(kind, file){
+async function valLoadSide(kind, file, autoMap){
   if(!file) return;
+  if(autoMap === undefined) autoMap = true;
   const loadToken = ++validatorLoadToken[kind];
   setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', file.name);
   try{
@@ -3312,6 +3411,11 @@ async function valLoadSide(kind, file){
     title.textContent = file.name;
     tag.textContent = `${meta.label} · ${metaFmt.label} · ${parsed.dataRecords.toLocaleString()} data records · ${parsed.headerNames.length} columns`;
     valClearMappingSummary();
+    // B-1: once BOTH files are present in the manual validator, link headers by
+    // name automatically — no extra ✨ Auto-Match button press required.
+    if(autoMap && validator.src && validator.out && validator.srcHdr && validator.outHdr){
+      valAutoMap();
+    }
     toast(`${kind==='src'?'Original':'Output'} loaded — ${file.name}`);
   } catch(err){
     console.error(err);
@@ -3402,6 +3506,26 @@ function valAutoMap(){
   valBuildMapFromPairs(auto);
   validator.mappingSource = 'auto';
   valRenderMapping(3);
+  // B-4: re-select identity to a column that is actually mapped so validation
+  // is not blocked by an unmapped default identity pick.
+  valSelectMappedIdentity();
+}
+
+/* B-4 shared identity picker: prefers Control#/DocID-style source columns that
+   are linked to an output column; falls back to the first linked source column. */
+function valSelectMappedIdentity(){
+  const identitySel = $('#valIdentityField');
+  if(!identitySel || !validator.mapping) return;
+  identitySel.value = '';
+  valRefreshIdentityOptions();
+  let mappedPref = null;
+  (validator.srcHdr || []).forEach((name, i)=>{
+    if(mappedPref !== null) return;
+    if(/^(control[ _-]?number|begdoc|docid|document[ _-]?id)$/i.test(String(name).trim())
+       && validator.mapping.indexOf(i) >= 0) mappedPref = i;
+  });
+  if(mappedPref === null) mappedPref = validator.mapping.findIndex(si => si !== null);
+  if(mappedPref >= 0 && mappedPref < (validator.srcHdr || []).length) identitySel.value = String(mappedPref);
 }
 
 function valParsePastedMap(){

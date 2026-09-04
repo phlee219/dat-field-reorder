@@ -646,7 +646,8 @@
    ============================================================= */
 
 /* ---------------- Small helpers ---------------- */
-const FE = '\u00FE';
+const FE = '\u00FE';        // 0xFE text qualifier
+const FE_DELIM = '\u0014';  // 0x14 (DC4) column delimiter — field boundary is FE 14 FE
 
 function countChar(s, c){
   let n=0;
@@ -698,12 +699,31 @@ function sanitizeScalarValue(s){
    handled by RecordStreamer below; field-level parsing is shared
    with the ORIGINAL field semantics). */
 function feSplit(rec){
-  const parts = rec.split(FE);
   const out = [];
+  // Proper EDML: 0x14 (DC4) column delimiter separates each þ…þ field.
+  // Split on 0x14 first, then unwrap the FE qualifier from each column.
+  if(rec.indexOf(FE_DELIM) >= 0){
+    const cols = rec.split(FE_DELIM);
+    for(let i=0;i<cols.length;i++){
+      let v = cols[i];
+      const n = v.length;
+      if(n >= 2 && v.charCodeAt(0) === 0xFE && v.charCodeAt(n-1) === 0xFE) v = v.slice(1, -1);
+      else if(n === 1 && v.charCodeAt(0) === 0xFE) v = '';  // lone þ = empty field
+      out.push(v);
+    }
+    return out;
+  }
+  // Legacy fallback — files previously written without 0x14 (þaþþbþ):
+  // every FE…FE pair still represents exactly one field.
+  const parts = rec.split(FE);
   for(let i=1;i<parts.length;i+=2) out.push(parts[i]);
   return out;
 }
-function feCompose(fields){ return fields.map(f => FE + f + FE).join(''); }
+function feCompose(fields){
+  // EDML requires each field boundary to be FE 14 FE. A raw 0x14/0xFE inside
+  // a value would split/re-quote the record, so strip those control chars.
+  return fields.map(f => FE + String(f==null?'':f).replace(/\u00FE|\u0014/g,' ') + FE).join(FE_DELIM);
+}
 
 function ccSplit(rec){
   const out = [];
@@ -773,7 +793,7 @@ const MAX_RECORD_BYTES = 768 * 1024 * 1024;
 
 const FORMATS = {
   fe: {
-    key:'fe', label:'þ 0xFE', hint:'þvalueþþvalueþ',
+    key:'fe', label:'þ 0xFE', hint:'þvalueþ [0x14] þvalueþ',
     quote: FE, skipDoubled:false,
     split: feSplit, compose: feCompose
   },

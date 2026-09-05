@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<!-- Field Mapper v2.9.0 - FE/DC4 fail-closed hardening -->
+<!-- Field Mapper v2.10.0 - FE/DC4 with data-integrity hardening (re-read validator, disk hash chain, fail-closed save) -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -822,8 +822,8 @@ CUSTODIAN	Custodian
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const TOOL_VERSION = '2.9.0';
-const TOOL_BUILD = '2026-09-04';
+const TOOL_VERSION = '2.10.0';
+const TOOL_BUILD = '2026-09-05';
 /* =============================================================
    DAT Field Reorder — multi-format load file reorder/removal
    BIG-FILE STREAMING EDITION
@@ -909,25 +909,54 @@ function sanitizeScalarValue(s){
    handled by RecordStreamer below; field-level parsing is shared
    with the ORIGINAL field semantics). */
 function feSplit(rec){
-  const cols = String(rec).split(FE_DELIM);
-  const out = [];
-  for(let ci=0; ci<cols.length; ci++){
-    const col = cols[ci];
-    if(col.length < 2 || col[0] !== FE || col[col.length-1] !== FE){
-      throw new Error(`Malformed FE/DC4 record: column ${ci+1} is not fully enclosed by þ qualifiers.`);
+  const s = String(rec);
+  // Modern FE/DC4 layout carries a DC4 (0x14) column separator between every
+  // pair of þ…þ fields — strict path (unchanged).
+  if(s.indexOf(FE_DELIM) >= 0){
+    const cols = s.split(FE_DELIM);
+    const out = [];
+    for(let ci=0; ci<cols.length; ci++){
+      const col = cols[ci];
+      if(col.length < 2 || col[0] !== FE || col[col.length-1] !== FE){
+        throw new Error(`Malformed FE/DC4 record: column ${ci+1} is not fully enclosed by þ qualifiers.`);
+      }
+      const inner = col.slice(1,-1);
+      let v = '';
+      for(let i=0;i<inner.length;i++){
+        if(inner[i] === FE){
+          if(inner[i+1] === FE){ v += FE; i++; }
+          else throw new Error(`Malformed FE/DC4 record: unescaped þ in column ${ci+1}.`);
+        } else if(inner[i] === FE_DELIM){
+          throw new Error(`Malformed FE/DC4 record: raw DC4 inside column ${ci+1}.`);
+        } else v += inner[i];
+      }
+      out.push(v);
     }
-    const inner = col.slice(1,-1);
-    let v = '';
-    for(let i=0;i<inner.length;i++){
-      if(inner[i] === FE){
-        if(inner[i+1] === FE){ v += FE; i++; }
-        else throw new Error(`Malformed FE/DC4 record: unescaped þ in column ${ci+1}.`);
-      } else if(inner[i] === FE_DELIM){
-        throw new Error(`Malformed FE/DC4 record: raw DC4 inside column ${ci+1}.`);
-      } else v += inner[i];
-    }
-    out.push(v);
+    return out;
   }
+
+  // F2: legacy Summation-style layout (no DC4 separator byte) — fields are
+  // consecutive þ…þ pairs: þaþþbþ → ['a','b']. Empty fields (þþ) are legal.
+  // NOTE: this legacy layout has NO escape for a literal þ inside a value;
+  // every þ is treated as a field-boundary toggle. A single-column record
+  // (no DC4 at all) parses identically under both the modern and legacy rules.
+  const out = [];
+  let v = '';
+  let open = false;
+  let sawField = false;
+  for(let i=0;i<s.length;i++){
+    const ch = s[i];
+    if(ch === FE){
+      if(open){ out.push(v); v = ''; open = false; sawField = true; }
+      else open = true;
+    } else if(open){
+      v += ch;
+    } else {
+      throw new Error('Malformed legacy FE record: unexpected character outside þ qualifiers at position ' + (i+1) + '.');
+    }
+  }
+  if(open) throw new Error('Malformed legacy FE record: unclosed þ qualifier at end of record.');
+  if(!sawField) throw new Error('Malformed legacy FE record: no þ-qualified fields found.');
   return out;
 }
 function feCompose(fields){
@@ -1124,7 +1153,10 @@ class RecordStreamer {
         }
       } else i++;
     }
-    this.pending = b.slice(start);
+    // P4: when no boundary was found in this chunk (start === 0) the whole
+    // pending+text is one unterminated record — keep the rope reference instead
+    // of copying it, so a giant record spanning many chunks is not O(n²).
+    this.pending = (start === 0) ? b : b.slice(start);
   }
   async _pushQuoted(text){
     if(this.fmtKey === 'csv') return this._pushCsv(text);
@@ -1176,7 +1208,9 @@ class RecordStreamer {
     if(start === 0 && b.length > MAX_RECORD_UNITS){
       throw recordTooLargeError('quoted', this.recIdx + 1);
     }
-    this.pending = b.slice(start);
+    // P4: keep the rope reference for an unterminated record instead of copying
+    // it every chunk (a large multiline field would otherwise be O(n²) memory work).
+    this.pending = (start === 0) ? b : b.slice(start);
     this.open = open;
   }
   async _pushCsv(text){
@@ -1223,7 +1257,9 @@ class RecordStreamer {
       i++; start=i; state='START';
     }
     if(start === 0 && b.length > MAX_RECORD_UNITS) throw recordTooLargeError('csv', this.recIdx+1);
-    this.pending = b.slice(start);
+    // P4: keep the rope reference for an unterminated record instead of copying
+    // it every chunk.
+    this.pending = (start === 0) ? b : b.slice(start);
     this.csvState = state;
     this.open = state === 'QUOTED';
   }
@@ -1271,6 +1307,7 @@ async function sniffMeta(file){
   const SNIFF = Math.min(file.size, 4 * 1024 * 1024);
   const head = new DataView(await file.slice(0, SNIFF).arrayBuffer());
   const n = head.byteLength;
+  if(n === 0) throw new Error('The file is empty (0 bytes) — nothing to parse.');
   const d = new Uint8Array(head.buffer, head.byteOffset, n);
 
   let hasBOM = false;
@@ -1312,10 +1349,25 @@ async function sniffMeta(file){
   }
 
   // Strict BOM-less UTF-8 validation. A single malformed sequence is material:
-  // replacement decoding would silently turn source bytes into U+FFFD.
+  // replacement decoding would silently turn source bytes into U+FFFD. BUT the
+  // sniff sample is capped at 4 MiB and a LARGER file can legitimately end the
+  // sample mid-character (a 3–4 byte sequence straddling the cut). That is not
+  // malformed data, so drop an incomplete trailing UTF-8 sequence first and only
+  // treat a failure of the remaining (complete) prefix as a non-UTF-8 source.
   if(effectiveKind === 'utf-8' && !hasBOM){
+    const raw = d.slice(bomBytes);
+    let end = raw.length;
+    let last = end - 1;
+    while(last >= 0 && (raw[last] & 0xC0) === 0x80) last--; // back over continuation bytes
+    if(last >= 0){
+      const b = raw[last];
+      if(b >= 0xC0){
+        const need = b >= 0xF0 ? 4 : b >= 0xE0 ? 3 : 2;
+        if(end - last < need) end = last; // leading byte of an incomplete tail sequence
+      }
+    }
     try {
-      new TextDecoder('utf-8', { fatal:true }).decode(d.slice(bomBytes));
+      new TextDecoder('utf-8', { fatal:true }).decode(raw.subarray(0, end));
     } catch(err) {
       sampleText = new TextDecoder('windows-1252').decode(d.slice(bomBytes));
       kind = 'cp1252';
@@ -1516,7 +1568,14 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
     }
 
     if(onRawChunk) onRawChunk(bytes);  // audit: exact file bytes (BOM was fed above)
-    const text = dec.decode(bytes);
+    let text;
+    try {
+      text = dec.decode(bytes);
+    } catch(err){
+      // P3: late-file decode failures must say WHERE they happened, not just
+      // "the file could not be processed".
+      throw new Error('Decode error near byte offset ' + offset.toLocaleString() + '–' + (offset + bytes.length).toLocaleString() + ' (' + (err && err.message ? err.message : String(err)) + '). The file is not valid ' + (meta.label || meta.kind) + ' — repair or convert it, then reload.');
+    }
     countEols(text);
     await streamer.push(text);
 
@@ -1527,7 +1586,12 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
       if(onProgress) await onProgress({ read: offset, total, pct });
     }
   }
-  const tail = dec.finish();
+  let tail;
+  try {
+    tail = dec.finish();
+  } catch(err){
+    throw new Error('Decode error at end of file: ' + (err && err.message ? err.message : String(err)));
+  }
   if(tail.text){ countEols(tail.text); await streamer.push(tail.text); }
   if(eolPendingCr) eolCr++;
   const broken = await streamer.flush();
@@ -1849,6 +1913,11 @@ async function loadFile(file){
     state.orderTarget = parsed.headerNames.map((_,i)=>i);
     state.selection = null;
 
+    // P1: a newly loaded source invalidates any previous save's 1-Click
+    // validation context (output was produced from a DIFFERENT original).
+    const lastSavedWasActive = !!(lastSavedOutput && lastSavedMode);
+    invalidateLastSaved();
+
     fmtEl.classList.remove('hidden');
     fmtBadge.textContent = `${FORMATS[fmtKey].label}  — ${FORMATS[fmtKey].hint}`;
 
@@ -1857,7 +1926,7 @@ async function loadFile(file){
     showIssues();
     updateSaveGuardUi();
     if(typeof clResetUi === 'function') clResetUi();
-    toast(`✅ ${file.name} — ${FORMATS[fmtKey].label} · ${parsed.dataRecords.toLocaleString()} data record${parsed.dataRecords===1?'':'s'}`);
+    toast(`✅ ${file.name} — ${FORMATS[fmtKey].label} · ${parsed.dataRecords.toLocaleString()} data record${parsed.dataRecords===1?'':'s'}` + (lastSavedWasActive ? ' · 이전 산출물의 1-Click 검증은 해제됨 — 새 원본으로 저장 후 다시 활성화됩니다.' : ''));
   } catch(err){
     console.error(err);
     toast('❌ Could not process the file: ' + (err && err.message ? err.message : 'unknown error'));
@@ -2231,10 +2300,52 @@ let lastPreflightAcknowledgement = {
   unsafeDelimiter: 0, edmlControl: 0, loneSurrogate: 0, cpLoss: 0
 };
 
+/* Byte-level unpaired-surrogate scan for UTF-16 sources. TextDecoder replaces
+   lone surrogates with U+FFFD BEFORE any JS code ever sees the decoded text, so
+   a decoded-value scan can never find them — this reads raw code units instead
+   so the fail-closed promise actually holds. A high/low surrogate pair may
+   straddle a chunk boundary; state is carried across chunks. */
+async function scanUtf16UnpairedSurrogates(file, meta){
+  const CHUNK = 8 * 1024 * 1024;
+  const total = file.size;
+  const be = meta.kind === 'utf-16be';
+  let offset = 0, unpaired = 0, first = null;
+  let pendingHigh = false, pendingHighOffset = null;
+  while(offset < total){
+    const bytes = new Uint8Array(await file.slice(offset, Math.min(offset + CHUNK, total)).arrayBuffer());
+    const lim = bytes.length & ~1; // stray odd tail byte is handled elsewhere (truncatedTail)
+    for(let i = 0; i < lim; i += 2){
+      const unit = be ? ((bytes[i] << 8) | bytes[i + 1]) : (bytes[i] | (bytes[i + 1] << 8));
+      const at = offset + i;
+      if(pendingHigh){
+        if(unit >= 0xDC00 && unit <= 0xDFFF){ pendingHigh = false; pendingHighOffset = null; continue; }
+        unpaired++;
+        if(first === null) first = pendingHighOffset;
+        pendingHigh = false; pendingHighOffset = null;
+      }
+      if(unit >= 0xD800 && unit <= 0xDBFF){ pendingHigh = true; pendingHighOffset = at; }
+      else if(unit >= 0xDC00 && unit <= 0xDFFF){ unpaired++; if(first === null) first = at; }
+    }
+    offset += bytes.length;
+    await new Promise(r => setTimeout(r, 0));
+  }
+  if(pendingHigh){ unpaired++; if(first === null) first = pendingHighOffset; }
+  return { unpaired, firstByte: first };
+}
+
 async function transformationPreflight(mode){
   const fmt = fmtInfo();
   const indices = mode === 'client' ? clMapArray() : state.orderTarget.slice();
   const risk = { unsafeDelimiter:0, unsafeFirst:null, edmlControl:0, edmlFirst:null, loneSurrogate:0, loneSurrogateFirst:null, cpLoss:0, cpFirst:null };
+  // UTF-16 only: lone surrogates are destroyed by the decoder before the value
+  // scan below runs, so detect them on the raw code-unit stream up front.
+  if(state.detected && (state.detected.kind === 'utf-16le' || state.detected.kind === 'utf-16be')){
+    const sur = await scanUtf16UnpairedSurrogates(state.file, state.detected);
+    if(sur.unpaired > 0){
+      risk.loneSurrogate += sur.unpaired;
+      risk.loneSurrogateFirst = 'file byte offset ' + (sur.firstByte === null ? '?' : sur.firstByte);
+    }
+  }
   let dataRow = 0;
   await scanFile(state.file, state.detected, state.fmtKey, async (rec, idx)=>{
     if(idx === 0) return;
@@ -2252,24 +2363,10 @@ async function transformationPreflight(mode){
       if(state.fmtKey === 'fe' && /\u0014/.test(v)){
         risk.edmlControl++; if(risk.edmlFirst === null) risk.edmlFirst = dataRow;
       }
-      // Lone (unpaired) UTF-16 surrogate has no lossless byte representation.
-      // Fail-closed: catch it here, BEFORE a save dialog / any output byte is
-      // created, instead of throwing mid-write after the sink was opened.
-      for(let ui=0; ui<v.length; ui++){
-        const cc = v.charCodeAt(ui);
-        if(cc >= 0xD800 && cc <= 0xDBFF){
-          const nn = v.charCodeAt(ui + 1);
-          if(!(nn >= 0xDC00 && nn <= 0xDFFF)){
-            risk.loneSurrogate++;
-            if(risk.loneSurrogateFirst === null) risk.loneSurrogateFirst = dataRow;
-          } else {
-            ui++;
-          }
-        } else if(cc >= 0xDC00 && cc <= 0xDFFF){
-          risk.loneSurrogate++;
-          if(risk.loneSurrogateFirst === null) risk.loneSurrogateFirst = dataRow;
-        }
-      }
+      // Unpaired UTF-16 surrogates are detected at the RAW BYTE level above
+      // (scanUtf16UnpairedSurrogates). By the time text reaches this loop the
+      // TextDecoder has already replaced them with U+FFFD, so a decoded-value
+      // check here would find nothing — do not "double check" with dead code.
       if(state.detected.kind === 'cp1252'){
         for(const ch of v){
           const cp = ch.codePointAt(0);
@@ -2287,7 +2384,7 @@ function preflightMessage(r){
   const lines=[];
   if(r.unsafeDelimiter) lines.push(`${r.unsafeDelimiter} field value(s) contain the active Tab/Pipe delimiter or a newline (first data row ${r.unsafeFirst}).`);
   if(r.edmlControl) lines.push(`${r.edmlControl} EDML field value(s) contain raw 0x14/DC4 and cannot survive FE/DC4 write (first data row ${r.edmlFirst}).`);
-  if(r.loneSurrogate) lines.push(`${r.loneSurrogate} field value(s) contain a lone (unpaired) UTF-16 surrogate that cannot be losslessly encoded (first data row ${r.loneSurrogateFirst}).`);
+  if(r.loneSurrogate) lines.push(`${r.loneSurrogate} unpaired UTF-16 surrogate code unit(s) detected in the source (first at ${r.loneSurrogateFirst}). These have no lossless byte representation — saving would silently substitute U+FFFD, so the write is blocked.`);
   if(r.cpLoss) lines.push(`${r.cpLoss} character(s) are not representable in CP1252 and would become '?' (first data row ${r.cpFirst}).`);
   return lines;
 }
@@ -2317,7 +2414,7 @@ async function requireSafePreflight(mode){
     const reasons=[];
     if(risk.unsafeDelimiter) reasons.push(`${risk.unsafeDelimiter} selected value(s) contain the active Tab/Pipe delimiter or newline (first data row ${risk.unsafeFirst}).`);
     if(risk.edmlControl) reasons.push(`${risk.edmlControl} selected FE/DC4 value(s) contain raw DC4 (0x14), which cannot be escaped (first data row ${risk.edmlFirst}).`);
-    if(risk.loneSurrogate) reasons.push(`${risk.loneSurrogate} selected value(s) contain a lone UTF-16 surrogate — no lossless encoding exists (first data row ${risk.loneSurrogateFirst}).`);
+    if(risk.loneSurrogate) reasons.push(`${risk.loneSurrogate} unpaired UTF-16 surrogate code unit(s) exist in the source file (first at ${risk.loneSurrogateFirst}) — no lossless encoding exists.`);
     alert('SAVE BLOCKED — STRUCTURAL DATA RISK\n\n' + reasons.join('\n') + '\n\nCleanse or convert the source through an approved workflow. No output file was created.');
     return false;
   }
@@ -2347,6 +2444,9 @@ function safeOutputName(name, fallback){
 // whole script at load time.
 let lastSavedOutput = null;   // File (ready for a post-save re-read scan)
 let lastSavedMode = null;     // 'reorder' | 'client' | null
+let lastSavedSrcHash = null;  // SHA-256 of the original bytes at the last successful save
+let lastSavedOutHash = null;  // SHA-256 of EVERY byte written by the last successful save
+let lastSavedPlan = null;     // snapshot of the column plan (orderTarget / client map) used by that save
 
 function syncValidateButtons(){
   const enable = !!lastSavedOutput;
@@ -2354,6 +2454,19 @@ function syncValidateButtons(){
   const clBtn = $('#btnValidateLastClient');
   if(reBtn) reBtn.disabled = !(enable && lastSavedMode === 'reorder');
   if(clBtn) clBtn.disabled = !(enable && lastSavedMode === 'client');
+}
+
+/* P1: the 1-Click "validate saved output" state is only valid for the source
+   file that produced the output. A new source file (or failed-to-commit state)
+   must invalidate it so the button can never attest a wrong original ↔ output
+   pair. */
+function invalidateLastSaved(){
+  lastSavedOutput = null;
+  lastSavedSrcHash = null;
+  lastSavedOutHash = null;
+  lastSavedMode = null;
+  lastSavedPlan = null;
+  syncValidateButtons();
 }
 
 async function launchSavedValidation(){
@@ -2369,6 +2482,18 @@ async function launchSavedValidation(){
   const mapSeed = mode === 'client' ? clMapArray() : (state.orderTarget ? state.orderTarget.slice() : null);
   if(!mapSeed){
     toast('⚠️ No mapping available. Save a reordered/client file, or drop two files in the Validator tab.');
+    return;
+  }
+  // R-a: the saved output must be validated with the SAME column plan that was
+  // used when it was saved. If the plan was edited after the save (without a new
+  // save), stop — otherwise a stale output could be compared against a plan that
+  // no longer matches it.
+  const planDiffers = !lastSavedPlan || lastSavedPlan.length !== mapSeed.length ||
+    lastSavedPlan.some((v,i)=> v !== mapSeed[i]);
+  if(planDiffers){
+    toast(mode === 'client'
+      ? '⚠️ The client mapping has changed since the file was saved. Re-save the client file, then validate — or use manual mapping in the Validator tab.'
+      : '⚠️ The field order has changed since the file was saved. Re-save the reordered file, then validate — or use manual mapping in the Validator tab.');
     return;
   }
   requestAnimationFrame(()=> switchClientMode('validator'));
@@ -2435,8 +2560,14 @@ function createSink(onWrite){
   let fileHandle = null;
   let pickerError = null;
   const chunks = [];
+  let bytesWritten = 0;       // every byte handed to writeBytes (stream & blob)
+  let opened = false;         // true once createWritable() succeeded (file may be replaced)
+  let integrityResult = null; // {ok, bytesWritten, diskSize} set by finish() for stream
   return {
     usesPicker,
+    bytesWrittenNow(){ return bytesWritten; },
+    wasOpened(){ return opened; },
+    integrity(){ return integrityResult; },
     setOnWrite(fn){ writeObserver = fn || null; },
     async begin(suggestedName){
       if(usesPicker){
@@ -2474,11 +2605,20 @@ function createSink(onWrite){
         let selected = null;
         try { selected = await fileHandle.getFile(); } catch(e){}
         if(selected && state.file && selected.name === state.file.name) throw new Error('Saving over the loaded source filename is blocked. Choose a new output filename.');
+        // H2: never truncate an existing, non-empty file without explicit consent.
+        if(selected && selected.size > 0){
+          const replace = confirm('The destination file "' + selected.name + '" already exists and will be REPLACED.\n\n' +
+            'If the save is interrupted (disk full, browser closed, crash), the previous file may be lost or left partially written.\n' +
+            'Choose a NEW file name to keep the existing file, or confirm to replace it.');
+          if(!replace) throw new Error('overwrite-cancelled');
+        }
         writable = await fileHandle.createWritable();
+        opened = true;
       }
     },
     async writeBytes(bytes){
       if(writeObserver) writeObserver(bytes);
+      bytesWritten += bytes.length;
       if(writable){
         try {
           await writable.write(bytes);
@@ -2506,6 +2646,10 @@ function createSink(onWrite){
         // FSA stream: capture the real on-disk file for post-save re-read.
         try { lastSavedOutput = await fileHandle.getFile(); }
         catch(e){ lastSavedOutput = null; }
+        // H3: post-save self-check — bytes actually on disk must equal the bytes
+        // this save wrote. A mismatch means the file is incomplete/truncated.
+        const diskSize = lastSavedOutput ? lastSavedOutput.size : -1;
+        integrityResult = { ok: diskSize === bytesWritten, bytesWritten, diskSize };
       } else {
         const blob = new Blob(chunks, { type:'application/octet-stream' });
         const url = URL.createObjectURL(blob);
@@ -2519,6 +2663,7 @@ function createSink(onWrite){
         try {
           lastSavedOutput = new File([blob], downloadName, { type:'application/octet-stream', lastModified: Date.now() });
         } catch(e){ lastSavedOutput = null; }
+        integrityResult = { ok: true, bytesWritten, diskSize: blob.size };
         return blob.size;
       }
       return null;
@@ -2569,6 +2714,7 @@ async function saveFileCore(){
   let srcHash = null, outHash = null;
   // Attach output hashing after preflight, then open the reserved destination.
   if(outHasher) sink.setOnWrite ? sink.setOnWrite(b => outHasher.update(b)) : null;
+  try {
   await sink.open();
   if(mode === 'blob'){
     if(state.file.size >= 1024 * 1024 * 1024 && !confirm('Save will accumulate the full output in browser memory.\n\nFor a file this large, use Chrome/Edge to stream straight to disk. Continue?')){
@@ -2623,7 +2769,6 @@ async function saveFileCore(){
     return fmt.compose(ordered);
   };
 
-  try {
     // BOM first (flushed separately so it is first in the file)
     await sink.writeBytes(metaBomBytes(state.detected));
 
@@ -2675,9 +2820,18 @@ async function saveFileCore(){
       srcHash  = inHasher  ? inHasher.hexDigest()  : null;
       outHash  = outHasher ? outHasher.hexDigest() : null;
     } catch(e){ console.warn('SHA-256 digest failed:', e); }
-    const okMsg = size === null
-      ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
-      : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
+    // H3: post-save self-check surfaced to the user (stream saves only).
+    const intg = (typeof sink.integrity === 'function') ? sink.integrity() : null;
+    const selfFail = !!(intg && !intg.ok);
+    let okMsg;
+    if(selfFail){
+      const diskTxt = intg.diskSize < 0 ? 'unavailable' : fmtBytesLabel(intg.diskSize);
+      okMsg = `⚠️ Save INCOMPLETE — ${FORMATS[state.fmtKey].label}: on-disk size ${diskTxt} != ${fmtBytesLabel(intg.bytesWritten)} bytes written. DO NOT USE this file — re-save to a NEW file name.`;
+    } else {
+      okMsg = size === null
+        ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
+        : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
+    }
     showSaveWarnings(okMsg);
     if(wantAudit){
       try{
@@ -2692,12 +2846,32 @@ async function saveFileCore(){
         safeOpenAuditModal(auditReportNameFor(downloadName), rep.text, rep.status);
       }catch(e){ console.warn('Audit report not generated:', e); }
     }
-    lastSavedMode = 'reorder';
-    syncValidateButtons();
+    if(selfFail){
+      // A broken output must never feed the 1-Click validator as a "good" save.
+      lastSavedOutput = null;
+      lastSavedSrcHash = null;
+      lastSavedOutHash = null;
+      lastSavedMode = null;
+      lastSavedPlan = null;
+      syncValidateButtons();
+    } else {
+      lastSavedSrcHash = srcHash;
+      lastSavedOutHash = outHash;
+      lastSavedMode = 'reorder';
+      lastSavedPlan = state.orderTarget ? state.orderTarget.slice() : null;
+      syncValidateButtons();
+    }
   } catch(err){
+    const msg = err && err.message ? err.message : 'unknown error';
+    if(/^overwrite-cancelled/.test(msg)){
+      console.warn('Save cancelled — existing file kept.');
+      toast('Save cancelled — the existing file was kept.');
+      return;
+    }
     if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
     console.error(err);
-    toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
+    const partial = mode === 'stream' && !!(sink && typeof sink.wasOpened === 'function' && sink.wasOpened());
+    toast('❌ Save failed: ' + msg + (partial ? ' — the destination file may have been PARTIALLY replaced. Verify it or re-save to a NEW file name.' : ''));
   } finally {
     clearBusy();
   }
@@ -2978,7 +3152,10 @@ function renderClRows(){
     if(r.mapped !== null){
       chip.className='cmap';
       const dir = document.createElement('span'); dir.className='cl-dir'; dir.textContent='⬅';
-      const b = document.createElement('b'); b.textContent = state.headerNames[r.mapped] || '(unknown)';
+      const srcName = (r.mapped >= 0 && r.mapped < state.headerNames.length)
+        ? state.headerNames[r.mapped]
+        : '(invalid source index — unmap & remap)';
+      const b = document.createElement('b'); b.textContent = srcName;
       const un = document.createElement('button'); un.className='unlink'; un.textContent='✕'; un.type='button';
       un.title='Unmap this field';
       un.addEventListener('click', e=>{ e.stopPropagation(); clUnmapRow(pos); toast(`Unmapped: ${r.name}`); });
@@ -3092,7 +3269,7 @@ async function saveClientFileCore(){
     toast(`⛔ Save blocked — ${mm.count.toLocaleString()} data row${mm.count===1?'':'s'} have a different column count than the header (${mm.mainCnt}). Tick the override above to save anyway.`);
     return;
   }
-  const rows = cl.rows.map(r => ({ name:r.name, mapped:r.mapped, blank:!!r.blank }));
+  const rows = cl.rows.map((r,i) => ({ i, name:r.name, mapped:r.mapped, blank:!!r.blank }));
   const unmappedCount = rows.filter(r=>r.mapped===null).length;
   if(unmappedCount > 0 && !($('#clUnmappedCbx') && $('#clUnmappedCbx').checked)){
     toast(`⛔ Save blocked — ${unmappedCount} client header${unmappedCount===1?'':'s'} not yet mapped. Their output columns would be delivered EMPTY. Map ${unmappedCount===1?'it':'them'} on the left, or tick the override above to save with explicit blank values.`);
@@ -3104,6 +3281,15 @@ async function saveClientFileCore(){
   if(unsafeHeaders.length){
     const sample = unsafeHeaders.slice(0,3).map(x=>`#${x.i+1} "${x.name}" ${x.reason}`).join('; ');
     toast(`⛔ Save blocked — ${unsafeHeaders.length} client header${unsafeHeaders.length===1?'':'s'} would break the ${FORMATS[state.fmtKey].label} schema. ${sample}`);
+    return;
+  }
+  // LR-1: defensive guard — a mapping pointing outside the source schema would
+  // otherwise silently write an EMPTY column for every row.
+  const oobMapped = rows.filter(r => r.mapped !== null && (r.mapped < 0 || r.mapped >= state.headerNames.length));
+  if(oobMapped.length){
+    const sample = oobMapped.slice(0,3).map(r=>`#${r.i+1} "${r.name}"`).join('; ');
+    toast(`⛔ Save blocked — ${oobMapped.length} client header${oobMapped.length===1?'':'s'} map to an out-of-range source column (source has ${state.headerNames.length} fields). Unmap and remap those rows. ${sample}`);
+    updateSaveGuardUi();
     return;
   }
 
@@ -3123,6 +3309,7 @@ async function saveClientFileCore(){
   const outHasher = wantAudit ? createSha256() : null;
   let srcHash = null, outHash = null;
   if(outHasher) sink.setOnWrite(b => outHasher.update(b));
+  try {
   await sink.open();
   if(mode === 'blob'){
     if(state.file.size >= 1024 * 1024 * 1024 && !confirm('Save will accumulate the full output in browser memory.\n\nFor a file this large, use Chrome/Edge to stream straight to disk. Continue?')){
@@ -3158,7 +3345,6 @@ async function saveClientFileCore(){
     return fmt.compose(vals);
   };
 
-  try {
     await sink.writeBytes(metaBomBytes(state.detected));
     const eolBytes = textToBytes(state.detected, state.eol);
     let wroteAny = false;
@@ -3186,9 +3372,18 @@ async function saveClientFileCore(){
       srcHash  = inHasher  ? inHasher.hexDigest()  : null;
       outHash  = outHasher ? outHasher.hexDigest() : null;
     } catch(e){ console.warn('SHA-256 digest failed:', e); }
-    const okMsg = size === null
-      ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
-      : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
+    // H3: post-save self-check surfaced to the user (stream saves only).
+    const intg = (typeof sink.integrity === 'function') ? sink.integrity() : null;
+    const selfFail = !!(intg && !intg.ok);
+    let okMsg;
+    if(selfFail){
+      const diskTxt = intg.diskSize < 0 ? 'unavailable' : fmtBytesLabel(intg.diskSize);
+      okMsg = `⚠️ Save INCOMPLETE — ${FORMATS[state.fmtKey].label}: on-disk size ${diskTxt} != ${fmtBytesLabel(intg.bytesWritten)} bytes written. DO NOT USE this file — re-save to a NEW file name.`;
+    } else {
+      okMsg = size === null
+        ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
+        : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
+    }
     showSaveWarnings(okMsg);
     if(wantAudit){
       try{
@@ -3203,12 +3398,32 @@ async function saveClientFileCore(){
         safeOpenAuditModal(auditReportNameFor(downloadName), rep.text, rep.status);
       }catch(e){ console.warn('Audit report not generated:', e); }
     }
-    lastSavedMode = 'client';
-    syncValidateButtons();
+    if(selfFail){
+      // A broken output must never feed the 1-Click validator as a "good" save.
+      lastSavedOutput = null;
+      lastSavedSrcHash = null;
+      lastSavedOutHash = null;
+      lastSavedMode = null;
+      lastSavedPlan = null;
+      syncValidateButtons();
+    } else {
+      lastSavedSrcHash = srcHash;
+      lastSavedOutHash = outHash;
+      lastSavedMode = 'client';
+      lastSavedPlan = clMapArray().slice();
+      syncValidateButtons();
+    }
   } catch(err){
+    const msg = err && err.message ? err.message : 'unknown error';
+    if(/^overwrite-cancelled/.test(msg)){
+      console.warn('Save cancelled — existing file kept.');
+      toast('Save cancelled — the existing file was kept.');
+      return;
+    }
     if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
     console.error(err);
-    toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
+    const partial = mode === 'stream' && !!(sink && typeof sink.wasOpened === 'function' && sink.wasOpened());
+    toast('❌ Save failed: ' + msg + (partial ? ' — the destination file may have been PARTIALLY replaced. Verify it or re-save to a NEW file name.' : ''));
   } finally {
     clearBusy();
   }
@@ -3318,7 +3533,14 @@ async function runSaveLocked(fn){
   if(saveOperationActive){ toast('A save is already in progress.'); return; }
   saveOperationActive = true;
   try { return await fn(); }
-  finally { saveOperationActive = false; }
+  catch(err){
+    // H1: never let a save error disappear silently (e.g. picker/open failures
+    // that occur before the per-save try/catch takes over).
+    console.error(err);
+    toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
+  } finally {
+    saveOperationActive = false;
+  }
 }
 async function saveFile(){ return runSaveLocked(saveFileCore); }
 async function saveClientFile(){ return runSaveLocked(saveClientFileCore); }
@@ -3369,6 +3591,10 @@ let valReportText = '';
 let saveOperationActive = false;
 let validationOperationToken = 0;
 const validatorLoadToken = { src:0, out:0 };
+/* Source header NAME the user explicitly chose in the identity dropdown.
+   null = no explicit choice yet (auto-pick may run). Stored by name so a new
+   source file with shifted column indexes can't silently retarget the pick. */
+let identityUserChoice = null;
 
 function valClearMappingSummary(){
   validator.mapping = null;
@@ -3511,11 +3737,18 @@ function valAutoMap(){
   valSelectMappedIdentity();
 }
 
-/* B-4 shared identity picker: prefers Control#/DocID-style source columns that
-   are linked to an output column; falls back to the first linked source column. */
+/* B-4 identity picker. If the user EXPLICITLY chose an identity in the dropdown
+   (identityUserChoice is set) that pick always wins — it is restored by header
+   NAME so column indexes shifting between files cannot silently retarget it.
+   Auto-pick runs only when there is no explicit choice: it prefers a Control#/
+   DocID-style source column that is actually mapped (fallback: first linked). */
 function valSelectMappedIdentity(){
   const identitySel = $('#valIdentityField');
   if(!identitySel || !validator.mapping) return;
+  if(identityUserChoice !== null){
+    valRefreshIdentityOptions();            // restores by name; clears stale names
+    if(identityUserChoice !== null) return; // the explicit pick is still applicable
+  }
   identitySel.value = '';
   valRefreshIdentityOptions();
   let mappedPref = null;
@@ -3635,7 +3868,8 @@ function valStreamPair(desc, onPair){
       return r; // null is the EOF marker and is never produced again by that side
     }
     async function runSide(side, cfg){
-      try{ await scanFile(cfg.file, cfg.meta, cfg.fmt, async rec => { await put(side, rec); }); }
+      try{ await scanFile(cfg.file, cfg.meta, cfg.fmt, async rec => { await put(side, rec); }, undefined,
+          cfg.hasher ? (b => cfg.hasher.update(b)) : null); }
       catch(e){ pairErr = e; }
       await put(side, null);
     }
@@ -3693,7 +3927,7 @@ async function valRunValidateCore(validationToken){
   if(validator.outInfo && validator.outInfo.utf16TruncatedTail) fatalInputs.push('output has a truncated UTF-16 tail');
   if(fatalInputs.length){ toast('⛔ Validation blocked — ' + fatalInputs.join('; ') + '.'); return; }
   setBusy('Validating…', 'Reading original + output records (streaming). First row of each is the header, which is skipped for data comparison.');
-  const stat = { rows:0, ok:0, identical:0, expected:0, expectedBlank:0, mismatch:0, skipBlank:0, firstMis: [], srcExtra:0, outExtra:0 };
+  const stat = { rows:0, ok:0, identical:0, expected:0, expectedBlank:0, mismatch:0, skipBlank:0, firstMis: [], srcExtra:0, outExtra:0, idMismatch:0, idMisFirst: [] };
 
   const srcFmt = FORMATS[validator.srcFmt];
   const outFmt = FORMATS[validator.outFmt];
@@ -3702,10 +3936,18 @@ async function valRunValidateCore(validationToken){
 
   const blankOk = (srcCell, outCell) => !!(String(srcCell||'') === '' && String(outCell||'') === '');
 
+  // Byte integrity: hash both files while the comparison stream reads them, so
+  // the report can show the ACTUAL re-read digests (constant memory, no extra pass).
+  const srcHasher = SHA256_SELF_TEST_OK ? createSha256() : null;
+  const outHasher = SHA256_SELF_TEST_OK ? createSha256() : null;
+  // Row-linkage columns for the identity sequence check (G2).
+  const identitySrcCol = identityIdx >= 0 ? identityIdx : null;
+  const identityOutCol = identityIdx >= 0 ? validator.mapping.indexOf(identityIdx) : -1;
+
   await valStreamPair(
     {
-      a: { file: validator.src, meta: validator.srcMeta, fmt: validator.srcFmt },
-      b: { file: validator.out, meta: validator.outMeta, fmt: validator.outFmt }
+      a: { file: validator.src, meta: validator.srcMeta, fmt: validator.srcFmt, hasher: srcHasher },
+      b: { file: validator.out, meta: validator.outMeta, fmt: validator.outFmt, hasher: outHasher }
     },
     async (recA, recB, rowIdx)=>{
       if(validationToken !== validationOperationToken) throw new Error('Validation superseded by a newer run.');
@@ -3739,6 +3981,19 @@ async function valRunValidateCore(validationToken){
             outName: validator.outHdr ? validator.outHdr[oi] : '' });
         }
       }
+      // Row-linkage (identity sequence) check on the streamed pair: the chosen
+      // identity values must appear in EXACTLY the same order/values on both
+      // sides. Catches dropped, duplicated or reordered records explicitly.
+      if(identitySrcCol !== null && identityOutCol >= 0 && cellsA && cellsB){
+        const rawA = identitySrcCol < cellsA.length ? cellsA[identitySrcCol] : '';
+        const rawB = identityOutCol < cellsB.length ? cellsB[identityOutCol] : '';
+        const idA = String(rawA == null ? '' : rawA);
+        const idB = String(rawB == null ? '' : rawB);
+        if(idA !== idB){
+          stat.idMismatch++;
+          if(stat.idMisFirst.length < 5) stat.idMisFirst.push({ row: rowIdx + 1, src: valEscapeForReport(idA), out: valEscapeForReport(idB) });
+        }
+      }
       if(stat.rows % 500 === 0) await new Promise(r=>setTimeout(r,0));
     }
   );
@@ -3751,11 +4006,74 @@ async function valRunValidateCore(validationToken){
   const srcIndexedMismatch = !!(validator.srcInfo && validator.srcInfo.mismatched > 0);
   const outIndexedMismatch = !!(validator.outInfo && validator.outInfo.mismatched > 0);
   const truncated = !!(validator.srcInfo && validator.srcInfo.utf16TruncatedTail) || !!(validator.outInfo && validator.outInfo.utf16TruncatedTail);
-  const failed = stat.mismatch > 0 || srcRec !== outRec || !headerCountMatch || !!srcSkip || !!outSkip || truncated || srcIndexedMismatch || outIndexedMismatch;
+
+  // ---- Byte-level metadata equality (G3) --------------------------------
+  // The tool always writes the source's encoding + BOM (+ single record EOL
+  // unless the source itself was mixed), so any difference on re-read is a
+  // sign of external re-encoding or a write fault, not an intentional step.
+  const encMismatch = !!(validator.srcMeta && validator.outMeta) && (
+    validator.outMeta.kind !== validator.srcMeta.kind ||
+    (!!validator.outMeta.hasBOM) !== (!!validator.srcMeta.hasBOM));
+  const srcEolInfo = validator.srcInfo && validator.srcInfo.eolInfo;
+  const outEolInfo = validator.outInfo && validator.outInfo.eolInfo;
+  const srcEolMixed = !!(srcEolInfo && srcEolInfo.mixed);
+  // LR-5: when the source uses a single EOL style the OUTPUT must match it in
+  // STYLE AND COUNT. A label-only comparison would miss a dropped final record
+  // terminator (e.g. trailing EOL removed) when both sides are the same style.
+  const eolMismatch = !srcEolMixed && srcEolInfo && outEolInfo && (
+    !!outEolInfo.mixed ||
+    srcEolInfo.label !== outEolInfo.label ||
+    !srcEolInfo.counts || !outEolInfo.counts ||
+    srcEolInfo.counts.crlf   !== outEolInfo.counts.crlf ||
+    srcEolInfo.counts.lfOnly !== outEolInfo.counts.lfOnly ||
+    srcEolInfo.counts.crOnly !== outEolInfo.counts.crOnly);
+
+  // ---- Re-read byte digests (G4/G1) --------------------------------------
+  // Hash digest is final once both side scans have pushed their EOF marker,
+  // which is exactly when valStreamPair resolves above.
+  let srcReadHash = null, outReadHash = null;
+  try{
+    srcReadHash = srcHasher ? srcHasher.hexDigest() : null;
+    outReadHash = outHasher ? outHasher.hexDigest() : null;
+  }catch(e){ console.warn('Re-read SHA-256 digest failed:', e); }
+  // 1-Click session: compare the disk file just read against the bytes the
+  // save actually wrote (captured at save time). FSA = real on-disk proof.
+  const savedHashCheckable = !!(lastSavedSrcHash || lastSavedOutHash);
+  const diskSrcMismatch  = !!(lastSavedSrcHash && (!srcReadHash  || lastSavedSrcHash  !== srcReadHash));
+  const diskOutMismatch = !!(lastSavedOutHash && (!outReadHash || lastSavedOutHash !== outReadHash));
+
+  const failed = stat.mismatch > 0 || stat.idMismatch > 0 || srcRec !== outRec || !headerCountMatch ||
+    !!srcSkip || !!outSkip || truncated || srcIndexedMismatch || outIndexedMismatch ||
+    encMismatch || eolMismatch || diskSrcMismatch || diskOutMismatch;
   const status = failed ? 'FAIL' : (stat.expected > 0 ? 'PARSED-VALUE PASS (with expected transformations)' : 'PARSED-VALUE PASS');
   valReportText = valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status });
   valReportText += `\n== Mapping assurance ==\nMapping source    : ${validator.mappingSource}\nLinked columns   : ${validator.mapping.filter(x=>x!==null).length}\nIdentity field   : ${validator.srcHdr[identityIdx] || '(unnamed)'} (source column ${identityIdx+1})\nIdentity linked  : YES\nExpected blanks  : ${validator.expectedBlank.size}\nUnapproved blanks: 0\n`;
   if(validator.expectedBlank.size) [...validator.expectedBlank].forEach(oi=>{ valReportText += `  out[${oi+1}] ${validator.outHdr[oi] || '(empty header)'}\n`; });
+
+  // ---- Identity row-linkage (G2) ----------------------------------------
+  valReportText += `\n== Identity row linkage ==\nIdentity values compared per row: ${stat.rows.toLocaleString()}\nIdentity mismatches   : ${stat.idMismatch.toLocaleString()}\n`;
+  if(stat.idMisFirst.length){
+    valReportText += 'First identity mismatches (up to 5):\n';
+    stat.idMisFirst.forEach(m=>{ valReportText += `  row ${m.row}: source='${m.src}' output='${m.out}'\n`; });
+  }
+
+  // ---- Byte integrity of the actual re-read files (G4 / G1) -------------
+  valReportText += `\n== Byte integrity (re-read) ==\nSource re-read SHA-256 : ${srcReadHash || '(hash unavailable)'}\nOutput re-read SHA-256 : ${outReadHash || '(hash unavailable)'}\n`;
+  valReportText += `Encoding match         : ${validator.srcMeta && validator.outMeta ? (validator.outMeta.kind === validator.srcMeta.kind ? 'MATCH' : 'MISMATCH ❌ (' + validator.srcMeta.label + ' -> ' + validator.outMeta.label + ')') : '—'}\n`;
+  valReportText += `BOM match              : ${validator.srcMeta && validator.outMeta ? ((!!validator.outMeta.hasBOM) === (!!validator.srcMeta.hasBOM) ? 'MATCH' : 'MISMATCH ❌') : '—'}\n`;
+  valReportText += `EOL match              : ${srcEolMixed ? 'source mixed — normalized output allowed' : (eolMismatch ? 'MISMATCH ❌' : 'MATCH')}\n`;
+  if(srcEolInfo || outEolInfo){
+    const fmtCnt = (info) => info && info.counts
+      ? `${info.label} · CRLF ${info.counts.crlf} / LF ${info.counts.lfOnly} / CR ${info.counts.crOnly}`
+      : '—';
+    valReportText += `EOL (source)          : ${fmtCnt(srcEolInfo)}\n`;
+    valReportText += `EOL (output)          : ${fmtCnt(outEolInfo)}\n`;
+  }
+  if(savedHashCheckable){
+    valReportText += `Saved==Disk source bytes : ${diskSrcMismatch ? 'MISMATCH ❌' : 'MATCH'}\n`;
+    valReportText += `Saved==Disk output bytes : ${diskOutMismatch ? 'MISMATCH ❌' : 'MATCH'}\n`;
+  }
+
   valShowResult(status, stat, { srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip });
   toast('✅ Validation complete — ' + status + (stat.expected ? ` (${stat.expected} expected cleansing)` : ''));
   clearBusy();
@@ -3824,6 +4142,7 @@ function valShowResult(status, stat, extra){
   mk('Identical', stat.identical.toLocaleString());
   mk('Expected cleanse', stat.expected.toLocaleString());
   mk('Mismatch', stat.mismatch.toLocaleString());
+  mk('Identity mismatches', stat.idMismatch.toLocaleString());
   val.dlBtn.disabled = false;
 }
 
@@ -3860,15 +4179,19 @@ async function valRunValidate(){
 function valRefreshIdentityOptions(){
   const sel = $('#valIdentityField');
   if(!sel) return;
-  const old = sel.value;
+  const headers = validator.srcHdr || [];
   sel.innerHTML = '';
   const blank = document.createElement('option'); blank.value=''; blank.textContent='Select approved identity field'; sel.appendChild(blank);
-  (validator.srcHdr || []).forEach((name,i)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=`${i+1}. ${name || '(blank header)'}`; sel.appendChild(o); });
-  if([...sel.options].some(o=>o.value===old)) sel.value=old;
-  else {
-    const preferred = (validator.srcHdr || []).findIndex(n=>/^(control[ _-]?number|begdoc|docid|document[ _-]?id)$/i.test(String(n).trim()));
-    if(preferred >= 0) sel.value=String(preferred);
+  headers.forEach((name,i)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=`${i+1}. ${name || '(blank header)'}`; sel.appendChild(o); });
+  // Restore the user's explicit pick by NAME. If that header no longer exists
+  // (a different source file was loaded), drop the stale choice and fall back.
+  if(identityUserChoice !== null){
+    const idx = headers.findIndex(h => String(h) === identityUserChoice);
+    if(idx >= 0){ sel.value = String(idx); return; }
+    identityUserChoice = null;
   }
+  const preferred = headers.findIndex(n=>/^(control[ _-]?number|begdoc|docid|document[ _-]?id)$/i.test(String(n).trim()));
+  if(preferred >= 0) sel.value = String(preferred);
 }
 
 function bindValidator(){
@@ -3876,12 +4199,20 @@ function bindValidator(){
   const outInput = $('#valOutInput');
   wireValDrop(val.srcZone, srcInput, (f)=> valLoadSide('src', f));
   wireValDrop(val.outZone, outInput, (f)=> valLoadSide('out', f));
+  // Track the user's explicit identity pick so auto-map / re-parse never
+  // overwrite it (see valSelectMappedIdentity).
+  const idSel = $('#valIdentityField');
+  if(idSel) idSel.addEventListener('change', ()=>{
+    const idx = idSel.value !== '' ? Number(idSel.value) : -1;
+    identityUserChoice = (idx >= 0 && validator.srcHdr && idx < validator.srcHdr.length)
+      ? String(validator.srcHdr[idx]) : null;
+  });
   $('#btnValMapParse').addEventListener('click', valParsePastedMap);
   $('#btnValAutoMap').addEventListener('click', valAutoMap);
   $('#btnValClearMap').addEventListener('click', ()=>{ valClearMappingSummary(); val.mapText.value=''; });
   $('#btnValidate').addEventListener('click', ()=> valRunValidate());
   val.dlBtn.addEventListener('click', ()=>{
-    if(valReportText) downloadTextFile('delivery_validation.txt', valReportText);
+    if(valReportText) downloadTextFile(timestampedDownloadName('delivery_validation', 'txt'), valReportText);
   });
 }
 
@@ -3976,13 +4307,17 @@ function bindButtons(){
       state.origHadTrailingEOL = !!reparsedTail.origHadTrailingEOL;
       state.orderTarget = parsed.headerNames.map((_,i)=>i);
       state.selection = null;
+      // F1: a re-parse resets the working column plan, so any 1-Click validation
+      // context from a previous save must not be reused against it.
+      const repWasActive = !!(lastSavedOutput && lastSavedMode);
+      invalidateLastSaved();
       fmtBadge.textContent = `${FORMATS[newFmt].label}  — ${FORMATS[newFmt].hint}${state.manualFmt ? ' (manual override)' : ''}`;
       renderSummary();
       showWorkspace();
       showIssues();
       updateSaveGuardUi();
       if(typeof clResetUi === 'function') clResetUi();
-      toast(`Re-parsed as ${FORMATS[newFmt].label}`);
+      toast(`Re-parsed as ${FORMATS[newFmt].label}` + (repWasActive ? ' · 이전 산출물의 1-Click 검증은 해제됨 — 다시 저장 후 활성화됩니다.' : ''));
     } catch(err){
       console.error(err);
       toast('⚠️ Re-parse failed: ' + (err && err.message ? err.message : 'error'));
@@ -4027,6 +4362,15 @@ function openFileHandler(file){
 
 bindButtons();
 bindClientMode();
+
+// P2: warn before the tab is closed while a streaming save is in flight —
+// closing mid-write can leave a partial destination file behind.
+window.addEventListener('beforeunload', (e)=>{
+  if(saveOperationActive){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 
 // Informational: show which save path will be used
 if(typeof window.showSaveFilePicker === 'function'){
@@ -4152,7 +4496,16 @@ let auditFileName = 'audit.txt';
 function auditReportNameFor(outputFile){
   const dot = String(outputFile).lastIndexOf('.');
   const base = dot > 0 ? String(outputFile).slice(0,dot) : String(outputFile);
-  return base + '__audit.txt';
+  return timestampedDownloadName(base + '__audit', 'txt');
+}
+
+/* LR-3: stamp downloaded report names with a local timestamp so re-running a
+   report can never silently produce a browser "copy" of the same filename. */
+function timestampedDownloadName(base, ext){
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  const ts = `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `${base}_${ts}.${ext || 'txt'}`;
 }
 
 function downloadTextFile(fileName, text){
@@ -4350,12 +4703,16 @@ let SHA256_SELF_TEST_OK = false;
   }
 })();
 
-console.info('DAT Field Reorder v' + TOOL_VERSION + ' — streaming edition. Supported: FE/DC4 DAT only. Concordance, TSV, Pipe, CSV and CP1252 are blocked. All local.');
+console.info('DAT Field Reorder v' + TOOL_VERSION + ' — streaming edition. Supported: FE/DC4 DAT (DC4 layout and legacy no-DC4 layout). Concordance, TSV, Pipe, CSV and CP1252 are blocked. All local.');
 
-/* v2.9.0 lineage note: strict CSV state validation, full-file mixed-EOL detection and fail-closed save,
-   Unicode-scalar CP1252 replacement consistency, filename sanitization, blank-header save guard,
-   and explicit parsed-value validator scope. */
+/* v2.10.0 lineage note: streaming FE/DC4 (DC4 + legacy no-DC4) load/reorder/client-map,
+   fail-closed preflight (DC4-in-value, unpaired UTF-16 surrogate, truncated tail, unclosed
+   qualifier, blank headers, column-count mismatch override), SHA-256 audit of source & every
+   written byte, post-save size self-check, overwrite consent + partial-write warnings +
+   beforeunload guard, 1-Click re-read validator with disk==saved hash chain, identity row
+   linkage, encoding/BOM/EOL style-and-count equality, stale-context invalidation on new
+   source or re-parse, and timestamped report downloads. */
 </script>
-<!-- v2.9.0 FE/DC4 fail-closed hardening release -->
+<!-- v2.10.0 FE/DC4 data-integrity hardening release -->
 </body>
 </html>

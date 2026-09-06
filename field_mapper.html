@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<!-- Field Mapper v2.10.0 - FE/DC4 with data-integrity hardening (re-read validator, disk hash chain, fail-closed save) -->
+<!-- Field Mapper v2.17.0 - FE/DC4 with data-integrity hardening. Fixes the remaining half of validator short-row harmonization: the indexed/structural FAIL used mismatched (short+long together), so short-row (trailing-empty) files still failed. Now only LONG rows (extra cells) drive the structural FAIL, matching the padded per-row comparison, and the report labels short rows as padded. Previous: on-demand diagnostics + instant saved-header check, header-alignment centralization, tiered auto-match (T1/T2/T3), re-read validator, disk hash chain, fail-closed save, decoder guard, structural format detection, row-count assertion, overwrite backup, identity QC, record-separator EOL accounting, pure-core self-test. -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -639,7 +639,13 @@ CUSTODIAN	Custodian
 </div>
 <div class="toolbar">
 <button class="btn sm" id="btnClUnlinkAll">✕ Unmap All</button>
-<button class="btn sm" id="btnClAutoGuess" title="Automatically match client headers to similarly named source fields (normalized name comparison)">✨ Auto-Match</button>
+<label for="clTierSel" class="meta" style="font-size:12px;margin-left:2px">Match:</label>
+<select id="clTierSel" title="Auto-match strictness — higher tiers map more rows">
+<option value="1">T1 Exact</option>
+<option value="2" selected>T2 Similar (recommended)</option>
+<option value="3">T3 Lenient</option>
+</select>
+<button class="btn sm" id="btnClAutoGuess" title="Automatically match client headers to similarly named source fields. Strictness = the tier selected above (T3 low-confidence links are highlighted for review).">✨ Auto-Match</button>
 </div>
 <div class="listbox" id="clSrcList"></div>
 <div class="preview-note" style="margin-top:8px;margin-bottom:0">
@@ -769,6 +775,12 @@ CUSTODIAN	Custodian
 ..." spellcheck="false"></textarea>
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
 <button class="btn" id="btnValMapParse">✔ Apply Pasted Map</button>
+<label for="valTierSel" class="meta" style="font-size:12px">Auto-Match tier:</label>
+<select id="valTierSel" title="Auto-Match strictness — higher tiers map more original columns">
+<option value="1">T1 Exact</option>
+<option value="2" selected>T2 Similar (recommended)</option>
+<option value="3">T3 Lenient</option>
+</select>
 <button class="btn primary" id="btnValAutoMap">✨ Auto-Match Headers</button>
 <button class="btn" id="btnValClearMap">Clear Map</button>
 <span class="cl-sample" id="valMapPreview" style="margin-top:0"></span>
@@ -798,7 +810,8 @@ CUSTODIAN	Custodian
 <div id="issuesList" style="font-size:13px;margin-top:7px;color:var(--muted)"></div>
 </section>
 <p class="light-txt" style="font-size:12px;text-align:center;padding:4px 0 26px">
-    eDiscovery load file tool — everything runs locally in your browser; no file is ever uploaded or transmitted.
+    eDiscovery load file tool — everything runs locally in your browser; no file is ever uploaded or transmitted.<br/>
+    <button type="button" id="btnSelfTest" title="Re-run the pure-core integrity self-test and show the result (failures disable saving/validation)." style="margin-top:10px;cursor:pointer;border:0;padding:6px 12px;border-radius:8px;background:#1556c9;color:#fff;font-size:12px">🩺 Run core self-check</button>
   </p>
 </main>
 <!-- Validation report modal (shown after save when the audit checkbox is on) -->
@@ -822,8 +835,12 @@ CUSTODIAN	Custodian
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const TOOL_VERSION = '2.10.0';
+const TOOL_VERSION = '2.17.0';
 const TOOL_BUILD = '2026-09-05';
+// R1: set by the startup pure-core self-test. When false, saving & validation
+// are disabled (fail-closed) so a regression in the core splitters/parsers can
+// never cause a silent bad delivery.
+let coreSelfTestOk = null;
 /* =============================================================
    DAT Field Reorder — multi-format load file reorder/removal
    BIG-FILE STREAMING EDITION
@@ -858,6 +875,11 @@ const TOOL_BUILD = '2026-09-05';
    replaced with U+FFFD.
    ============================================================= */
 
+/* __EDML_CORE_BEGIN__ - pure core block (no DOM). The Node test harness in
+   tests/ extracts everything between this marker and __EDML_CORE_END__ and
+   evaluates it to unit-test the splitters/composers/encoders/detectors. Do not
+   place DOM-touching top-level statements inside this region. */
+
 /* ---------------- Small helpers ---------------- */
 const FE = '\u00FE';        // 0xFE text qualifier
 const FE_DELIM = '\u0014';  // 0x14 (DC4) column delimiter — field boundary is FE 14 FE
@@ -881,6 +903,20 @@ function countChar(s, c){
 function firstLineOf(text){
   const m = text.match(/[^\r\n]*/);
   return m ? m[0] : text;
+}
+/* R3: first physical line that has non-whitespace content. Used for format
+   detection so a stray blank/empty line before the header (e.g. after a BOM)
+   never makes a genuine FE/DC4 file fall through to a wrong-format guess. */
+function firstMeaningfulLine(text){
+  const s = String(text || '');
+  let i = 0;
+  for(;;){
+    const nl = s.indexOf('\n', i);
+    const line = (nl < 0 ? s.slice(i) : s.slice(i, nl)).replace(/\r$/, '');
+    if(line.trim() !== '') return line;
+    if(nl < 0) return line; // reached EOF with no meaningful content
+    i = nl + 1;
+  }
 }
 
 /* Fail-closed surrogate scan: a lone (unpaired) UTF-16 surrogate has no
@@ -1294,10 +1330,26 @@ const CP1252_MAP = {
   '\u017E':0x9E,'\u0178':0x9F
 };
 
-function decodeBuf(d, omitBOM){
-  const slice = d.slice(omitBOM);
-  const decoderName = { 'utf-8':'utf-8','utf-16le':'utf-16le','utf-16be':'utf-16be','cp1252':'windows-1252' }[d.kind];
-  return new TextDecoder(decoderName).decode(slice);
+/* R5: decodeBuf was an unused whole-buffer helper that bypassed the fail-closed
+   decoderFor() guard; it is removed. All decoding now goes through decoderFor(). */
+
+/* Fail-closed decoding support (A-1). A UTF-16 signature must never be silently
+   re-read as another encoding when this engine lacks the required decoder: that
+   would turn the whole file into mojibake with no error at all. Availability is
+   probed once; any later request for a missing decoder throws a clear message. */
+function probeDecoder(name){ try { new TextDecoder(name); return true; } catch(e){ return false; } }
+const DECODER_SUPPORT = {
+  'utf-8': probeDecoder('utf-8'),
+  'utf-16le': probeDecoder('utf-16le'),
+  'utf-16be': probeDecoder('utf-16be'),
+  'windows-1252': probeDecoder('windows-1252')
+};
+function decoderFor(name, fatal){
+  if(!DECODER_SUPPORT[name]){
+    throw new Error('Blocked decode: this browser cannot decode ' + name +
+      '. Use current Chrome/Edge, or convert the source to UTF-8 through an approved workflow, then reload.');
+  }
+  return fatal ? new TextDecoder(name, { fatal: true }) : new TextDecoder(name);
 }
 
 /* Read up to n bytes from the file and detect:
@@ -1338,14 +1390,20 @@ async function sniffMeta(file){
     else if(oR > .12 && eR < .01) kind = 'utf-16le';
   }
 
+  // Fail-closed decode (A-1): a UTF-16 signature (BOM or byte-signature
+  // heuristic) must never be silently re-read as another encoding. If the
+  // engine lacks the decoder we block here instead of producing mojibake.
   let sampleText;
   let effectiveKind = kind;
-  try {
-    const decoderName = { 'utf-8':'utf-8','utf-16le':'utf-16le','utf-16be':'utf-16be' }[kind];
-    sampleText = new TextDecoder(decoderName).decode(d.slice(bomBytes));
-  } catch(err){
-    sampleText = new TextDecoder('utf-8').decode(d.slice(bomBytes));
-    kind = 'utf-8'; effectiveKind = 'utf-8'; bomBytes = (bomBytes===3?3:0);
+  if(kind === 'utf-16le' || kind === 'utf-16be'){
+    if(!DECODER_SUPPORT[kind]){
+      throw new Error('Blocked: this browser does not support ' + (kind === 'utf-16le' ? 'UTF-16 LE' : 'UTF-16 BE') +
+        ' decoding. Use a current Chrome/Edge release, or convert the source to UTF-8 through an approved workflow, then reload.');
+    }
+    sampleText = decoderFor(kind).decode(d.slice(bomBytes));
+  } else {
+    // BOM-less UTF-8 is validated below (fatal) so no silent downgrade here.
+    sampleText = decoderFor('utf-8').decode(d.slice(bomBytes));
   }
 
   // Strict BOM-less UTF-8 validation. A single malformed sequence is material:
@@ -1367,9 +1425,9 @@ async function sniffMeta(file){
       }
     }
     try {
-      new TextDecoder('utf-8', { fatal:true }).decode(raw.subarray(0, end));
+      decoderFor('utf-8', true).decode(raw.subarray(0, end));
     } catch(err) {
-      sampleText = new TextDecoder('windows-1252').decode(d.slice(bomBytes));
+      sampleText = decoderFor('windows-1252').decode(d.slice(bomBytes));
       kind = 'cp1252';
     }
   }
@@ -1390,7 +1448,7 @@ function createStreamDecoder(meta){
   const name = decoderNameFor(meta.kind);
   // Fatal UTF-8 prevents late-file malformed byte sequences from silently
   // becoming U+FFFD after a clean sniff sample.
-  const dec = new TextDecoder(name, meta.kind === 'utf-8' ? { fatal:true } : undefined);
+  const dec = decoderFor(name, meta.kind === 'utf-8');
   let carry = null;
   const isUtf16 = meta.kind === 'utf-16le' || meta.kind === 'utf-16be';
   return {
@@ -1481,7 +1539,15 @@ function metaBomBytes(meta){
    ============================================================= */
 function eolInfoFromCounts(crlf, lfOnly, crOnly){
   const kinds = [crlf>0, lfOnly>0, crOnly>0].filter(Boolean).length;
-  if(kinds > 1) return { eol:null, label:`Mixed EOL (CRLF ${crlf}, LF ${lfOnly}, CR ${crOnly})`, mixed:true, counts:{crlf,lfOnly,crOnly} };
+  if(kinds > 1){
+    // R2: mixed sources report a DOMINANT EOL so the save uses the majority
+    // record-separator style instead of silently forcing CRLF. mixed:true still
+    // relaxes the validator's single-style equality, which is correct.
+    let eol = '\r\n';
+    if(lfOnly > crlf && lfOnly >= crOnly) eol = '\n';
+    else if(crOnly > crlf && crOnly > lfOnly) eol = '\r';
+    return { eol, label:`Mixed EOL (CRLF ${crlf}, LF ${lfOnly}, CR ${crOnly})`, mixed:true, counts:{crlf,lfOnly,crOnly} };
+  }
   if(crlf > 0) return {eol:'\r\n', label:'CRLF (Windows)', mixed:false, counts:{crlf,lfOnly,crOnly}};
   if(lfOnly > 0) return {eol:'\n', label:'LF (Unix)', mixed:false, counts:{crlf,lfOnly,crOnly}};
   if(crOnly > 0) return {eol:'\r', label:'CR (Mac)', mixed:false, counts:{crlf,lfOnly,crOnly}};
@@ -1494,11 +1560,32 @@ function detectEol(text){
   return eolInfoFromCounts(crlf, lfOnly, crOnly);
 }
 
-/* Format heuristic — same rules as before, driven by decoded sample */
+/* Structural FE/DC4 recognition (A-2). A header line is an FE record iff it is a
+   run of one-or-more text-qualifier columns: it must begin and end inside the FE
+   qualifier, and every non-FE byte must sit either inside an open qualifier or be
+   a DC4 column separator. This catches single-column FE files whose header value
+   itself contains a comma, pipe or tab (which the old threshold-based heuristic
+   could misclassify as CSV/pipe/TSV and then parse every row corruptly). */
+function looksLikeFeRecord(s){
+  const t = s.trim();
+  if(t.length < 2 || t[0] !== FE || t[t.length-1] !== FE) return false;
+  let open = false;
+  for(let i=0;i<t.length;i++){
+    const ch = t[i];
+    if(ch === FE) open = !open;
+    else if(open){ /* inside a qualifier - any content is fine */ }
+    else if(ch === FE_DELIM){ /* DC4 column separator between FE fields */ }
+    else return false; // stray byte outside a qualifier: not an FE record
+  }
+  return !open;
+}
+
+/* Format heuristic - driven by the decoded sample. FE is decided first on
+   structure (not on a delimiter-count threshold) so a genuine FE file is never
+   handed to a plain-delimiter splitter. */
 function detectFormat(text){
-  const head = firstLineOf(text);
-  const feCount = countChar(head, FE);
-  if(feCount >= 4) return 'fe';
+  const head = firstMeaningfulLine(text);
+  if(looksLikeFeRecord(head)) return 'fe';
   const caret = countChar(head, '^');
   const headTrim = head.trim();
   if(caret >= 2 && headTrim.startsWith('^') && head.includes('^|')) return 'cc';
@@ -1510,12 +1597,135 @@ function detectFormat(text){
   if(pipe >= 2) return 'pipe';
   if(q >= 0) return 'csv';
   // A bare comma-separated header with no double quotes is still CSV, e.g.
-  // DOCID,BEGDOC,CUSTODIAN — without this it fell through to 'pipe' and every
+  // DOCID,BEGDOC,CUSTODIAN - without this it fell through to 'pipe' and every
   // record became a single giant field.
   if(comma >= 1) return 'csv';
-  if(feCount > 0) return 'fe';
+  if(countChar(head, FE) > 0) return 'fe';
   if(caret > 0) return 'cc';
   return 'pipe';
+}
+
+/* =============================================================
+   3-tier field auto-matching (pure core)
+   ============================================================= */
+/* Higher maxTier maps strictly more rows: each tier only fills names the lower
+   tiers could not, so the mapped count is monotonic in the chosen tier.
+     tier 1 EXACT     raw trimmed equality
+     tier 2 SIMILAR   normalized equality (lowercase, drop non alnum / Hangul)
+     tier 3 LENIENT   alias/canonical equality or safe fuzzy similarity
+   Ambiguity (several source columns tie) is never guessed - a tie maps nothing. */
+function foldHeader(s){
+  return String(s == null ? '' : s).toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9\uAC00-\uD7A3]+/g, '');
+}
+/* eDiscovery field-name synonym groups (folded). Two names that share a group
+   are treated as the same field at tier 3. Single-member groups are ignored. */
+const FIELD_ALIAS_GROUPS = [
+  ['begdoc','batesbegin','batesbegindoc','begbates','beginbates','beginningbatesnumber'],
+  ['enddoc','batesend','endbates','endingbates','batesenddoc','enddocid'],
+  ['docid','documentid','documentnumber','docno','docnum'],
+  ['controlno','controlnumber','controlnum','idcontrol'],
+  ['custodian','custodianname','cust'],
+  ['batesno','batesnumber','bates','batesnumbersequence'],
+  ['begno','beginnumber','begseqno','begsequence'],
+  ['endno','endnumber','endseqno','endsequence'],
+  ['familyid','familyno','familynumber','family'],
+  ['attachid','attachmentid','attachno','attachmentno'],
+  ['begattach','beginattach','beginattachmentid','begattachmentid'],
+  ['endattach','endattachmentid','endattachmentno']
+];
+function aliasFamily(fold){
+  for(let g = 0; g < FIELD_ALIAS_GROUPS.length; g++){
+    if(FIELD_ALIAS_GROUPS[g].indexOf(fold) >= 0) return FIELD_ALIAS_GROUPS[g];
+  }
+  return null;
+}
+function aliasEquals(aFold, bFold){
+  if(aFold === bFold) return true;
+  const A = aliasFamily(aFold), B = aliasFamily(bFold);
+  return A !== null && A === B;
+}
+function levenshtein(a, b){
+  if(a === b) return 0;
+  const m = a.length, n = b.length;
+  if(!m) return n; if(!n) return m;
+  let p = new Array(n + 1), q = new Array(n + 1);
+  for(let j = 0; j <= n; j++) p[j] = j;
+  for(let i = 1; i <= m; i++){
+    q[0] = i; const ca = a.charCodeAt(i - 1);
+    for(let j = 1; j <= n; j++){
+      const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
+      q[j] = Math.min(p[j] + 1, q[j - 1] + 1, p[j - 1] + cost);
+    }
+    const t = p; p = q; q = t;
+  }
+  return p[n];
+}
+/* Similarity used only at tier 3: 1 for identical or alias-equal, else a
+   normalized edit-distance ratio with a length-gap guard. */
+function headerNameSim(a, b){
+  const A = foldHeader(a), B = foldHeader(b);
+  if(!A || !B) return 0;
+  if(A === B) return 1;
+  if(aliasEquals(A, B)) return 0.98;
+  const L = Math.max(A.length, B.length);
+  if(L < 3) return 0;
+  let sim = 1 - levenshtein(A, B) / L;
+  const mn = Math.min(A.length, B.length);
+  if(Math.abs(A.length - B.length) > Math.max(2, Math.round(L * 0.5))) sim = Math.min(sim, 0.5);
+  return sim;
+}
+/* Best-match among srcNames for `name` within maxTier. Returns {idx,tier} or
+   null when nothing is safe (ambiguous tie / below threshold / no margin). */
+function findHeaderMatch(name, srcNames, maxTier){
+  const trimmed = String(name == null ? '' : name).trim();
+  // tier 1: exact
+  { const hits = [];
+    for(let i = 0; i < srcNames.length; i++) if(srcNames[i] === trimmed) hits.push(i);
+    if(hits.length === 1) return { idx: hits[0], tier: 1 }; }
+  if(maxTier >= 2){
+    const f = foldHeader(trimmed);
+    const hits = [];
+    for(let i = 0; i < srcNames.length; i++){
+      if(srcNames[i] !== trimmed && foldHeader(srcNames[i]) === f) hits.push(i);
+    }
+    if(hits.length === 1) return { idx: hits[0], tier: 2 };
+  }
+  if(maxTier >= 3){
+    let best = -1, bestSim = -0.01, second = -0.02;
+    for(let i = 0; i < srcNames.length; i++){
+      const sim = headerNameSim(trimmed, srcNames[i]);
+      if(sim > bestSim){ second = bestSim; bestSim = sim; best = i; }
+      else if(sim > second){ second = sim; }
+    }
+    const THR = 0.82, MARGIN = 0.04;
+    if(best >= 0 && bestSim >= THR && (bestSim - second) >= MARGIN && srcNames[best] !== trimmed){
+      return { idx: best, tier: 3 };
+    }
+  }
+  return null;
+}
+
+/* Shared record-walker that mirrors buildFileIndex's header rule so EVERY
+   full-file consumer (preflight, reorder save, client save, validator pairing)
+   identifies the header exactly as the loader does: skip leading blank physical
+   lines, then treat the first non-blank record as the header and pass only the
+   following DATA rows to onData(rec, dataNumber1based). This stops the header
+   from being emitted as a data row whenever a file starts with blank line(s). */
+function isBlankPhysicalRecord(rec){ return String(rec == null ? '' : rec).trim() === ''; }
+function dataRowStreamer(onData){
+  let headerSeen = false;
+  let n = 0;
+  return async (rec) => {
+    if(!headerSeen){
+      if(isBlankPhysicalRecord(rec)) return;   // leading blank line
+      headerSeen = true;                       // first non-blank record = header
+      return;
+    }
+    n++;
+    await onData(rec, n);
+  };
 }
 
 /* =============================================================
@@ -1540,17 +1750,52 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   if(onRawChunk && meta.hasBOM && meta.bomBytes > 0) onRawChunk(metaBomBytes(meta));
   let offset = meta.bomBytes;
   let lastProgressPct = -1;
-  let eolCrlf = 0, eolLf = 0, eolCr = 0, eolPendingCr = false;
-  const countEols = (text) => {
-    for(let i=0;i<text.length;i++){
-      const ch=text[i];
-      if(eolPendingCr){
-        if(ch==='\n'){ eolCrlf++; eolPendingCr=false; continue; }
-        eolCr++; eolPendingCr=false;
-      }
-      if(ch==='\r') eolPendingCr=true;
-      else if(ch==='\n') eolLf++;
+  // R2: record-separator EOL accounting. Only EOLs that terminate a logical
+  // record - i.e. that occur OUTSIDE an open text qualifier - are counted, so
+  // embedded newlines inside extracted-text/email-body fields never distort the
+  // separator style/count and never force an unwanted separator normalization.
+  const q = FORMATS[fmtKey] ? FORMATS[fmtKey].quote : null;
+  const skip = FORMATS[fmtKey] ? !!FORMATS[fmtKey].skipDoubled : false;
+  const eolCount = { crlf:0, lf:0, cr:0 };
+  let openQuote = false; // inside a text qualifier
+  let qPending = false;  // doubled-quote straddling a chunk boundary (CSV)
+  let sepCr = false;     // boundary CR at previous chunk end awaiting a possible LF
+  const feed = (text) => {
+    if(!text) return;
+    let i = 0;
+    const n = text.length;
+    if(sepCr){
+      if(n > 0 && text[0] === '\n'){ eolCount.crlf++; i = 1; }
+      else { eolCount.cr++; }
+      sepCr = false;
     }
+    if(qPending){
+      if(i < n && text[i] === q) i++;          // doubled quote crossed the boundary
+      else openQuote = !openQuote;
+      qPending = false;
+    }
+    for(; i < n; i++){
+      const ch = text[i];
+      if(q !== null){
+        if(ch === q){
+          if(skip && i + 1 < n && text[i + 1] === q){ i++; continue; }
+          if(skip && i + 1 === n){ qPending = true; continue; }
+          openQuote = !openQuote;
+          continue;
+        }
+      }
+      if((ch === '\r' || ch === '\n') && (q === null || !openQuote)){
+        if(ch === '\r'){
+          if(i + 1 < n && text[i + 1] === '\n'){ eolCount.crlf++; i++; }
+          else if(i + 1 === n){ sepCr = true; }
+          else { eolCount.cr++; }
+        } else eolCount.lf++;
+      }
+    }
+  };
+  const finishEols = () => {
+    if(sepCr){ eolCount.cr++; sepCr = false; }
+    return eolInfoFromCounts(eolCount.crlf, eolCount.lf, eolCount.cr);
   };
 
   while(offset < total){
@@ -1576,7 +1821,7 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
       // "the file could not be processed".
       throw new Error('Decode error near byte offset ' + offset.toLocaleString() + '–' + (offset + bytes.length).toLocaleString() + ' (' + (err && err.message ? err.message : String(err)) + '). The file is not valid ' + (meta.label || meta.kind) + ' — repair or convert it, then reload.');
     }
-    countEols(text);
+    feed(text);
     await streamer.push(text);
 
     offset += bytes.length; // == end, plus one more when an extra byte was absorbed
@@ -1592,11 +1837,11 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   } catch(err){
     throw new Error('Decode error at end of file: ' + (err && err.message ? err.message : String(err)));
   }
-  if(tail.text){ countEols(tail.text); await streamer.push(tail.text); }
-  if(eolPendingCr) eolCr++;
+  if(tail.text){ feed(tail.text); await streamer.push(tail.text); }
   const broken = await streamer.flush();
+  const eolInfo = finishEols();
   return { unclosedQualifier: broken ? broken.record : null, utf16TruncatedTail: !!tail.truncatedTail,
-    eolInfo: eolInfoFromCounts(eolCrlf, eolLf, eolCr) };
+    eolInfo };
 }
 
 /* =============================================================
@@ -1645,8 +1890,14 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
   let parseErrorFirst = null;
   let parseErrorMessage = null;
 
-  const handle = (rec) => {
+  let handledForYield = 0;
+  const handle = async (rec) => {
     if(!headerDone){
+      // R3: skip stray blank physical line(s) before the header so a genuine
+      // file that starts with an empty line is still parsed (a truly blank file
+      // yields no header and is reported below). Only whitespace-only records
+      // are skipped; a real FE header that happens to be empty is not guessed.
+      if(isBlankPhysicalRecord(rec)) return;
       headerDone = true;
       headerRaw = rec;
       const fields = FORMATS[fmtKey].split(rec).map(s => sanitizeScalarValue(s));
@@ -1663,6 +1914,8 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
     if(rec.indexOf('\n') >= 0 || rec.indexOf('\r') >= 0) multiline++;
     dataRecords++;
     if(previews.length < 4) previews.push(rec);
+    // Periodic macrotask yield keeps a very large file from freezing the UI.
+    if((++handledForYield) % 100000 === 0) await new Promise(r => setTimeout(r, 0));
   };
 
   const scanResult = await scanFile(file, meta, fmtKey, handle, onProgress);
@@ -1697,6 +1950,7 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
     eolInfo: scanResult ? scanResult.eolInfo : detectEol('')
   };
 }
+/* __EDML_CORE_END__ */
 
 /* =============================================================
    UI elements & small rendering helpers
@@ -1848,7 +2102,7 @@ async function probeFileEol(file, meta){
       const tailStart = Math.max(0, meta.bomBytes, sz - 65536);
       const tailBuf = new Uint8Array(await file.slice(tailStart, sz).arrayBuffer());
       if(tailBuf.length){
-        trailing += new TextDecoder(decoderNameFor(meta.kind)).decode(tailBuf);
+        trailing += decoderFor(decoderNameFor(meta.kind)).decode(tailBuf);
       }
     }
   } catch(e){ /* ignore */ }
@@ -2347,9 +2601,8 @@ async function transformationPreflight(mode){
     }
   }
   let dataRow = 0;
-  await scanFile(state.file, state.detected, state.fmtKey, async (rec, idx)=>{
-    if(idx === 0) return;
-    dataRow++;
+  const onDataRow = dataRowStreamer(async (rec, rowNumber) => {
+    dataRow = rowNumber;
     let fields;
     try { fields = fmt.split(rec); } catch(e){
       throw new Error(`Malformed FE/DC4 data record ${dataRow}: ${e && e.message ? e.message : String(e)}`);
@@ -2377,7 +2630,8 @@ async function transformationPreflight(mode){
       }
     }
     if(dataRow % 10000 === 0) await new Promise(r=>setTimeout(r,0));
-  }, ({pct})=>setBusy('Safety preflight…', `${pct}% · ${dataRow.toLocaleString()} records checked`));
+  });
+  await scanFile(state.file, state.detected, state.fmtKey, onDataRow, ({pct})=>setBusy('Safety preflight…', `${pct}% · ${dataRow.toLocaleString()} records checked`));
   return risk;
 }
 function preflightMessage(r){
@@ -2399,7 +2653,7 @@ async function requireSafePreflight(mode){
   };
   if(state.mixedEol){
     lastPreflightAcknowledgement.required = true;
-    lines.push('Mixed physical EOL markers were detected. Embedded extracted text may account for the mixture. Output record separators will be normalized to the selected output EOL; parsed values remain under validator comparison.');
+    lines.push('Mixed record-separator EOL markers were detected across records. Output record separators will use the dominant separator style; parsed field values remain under validator comparison.');
   }
   const blankHeaders = (state.headerNames || []).map((h,i)=>String(h||'').trim()==='' ? i+1 : null).filter(Boolean);
   if(blankHeaders.length){
@@ -2607,10 +2861,25 @@ function createSink(onWrite){
         if(selected && state.file && selected.name === state.file.name) throw new Error('Saving over the loaded source filename is blocked. Choose a new output filename.');
         // H2: never truncate an existing, non-empty file without explicit consent.
         if(selected && selected.size > 0){
+          // B-4: writing replaces the file in place (FSA has no atomic
+          // temp+rename), so an interrupted save can destroy the previous
+          // version. Before we may truncate it we stream a recoverable backup
+          // copy to Downloads so the operator can restore it if needed.
+          const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+          const bakName = safeOutputName(selected.name, 'backup') + '.' + ts + '.bak';
           const replace = confirm('The destination file "' + selected.name + '" already exists and will be REPLACED.\n\n' +
-            'If the save is interrupted (disk full, browser closed, crash), the previous file may be lost or left partially written.\n' +
-            'Choose a NEW file name to keep the existing file, or confirm to replace it.');
+            'The save writes into the existing file directly. If it is interrupted (disk full, browser closed, crash), ' +
+            'the previous file may be lost or left partially written.\n\n' +
+            'To protect it, a backup copy will be downloaded first:\n    ' + bakName + '\n\n' +
+            'Choose a NEW file name to keep the existing file untouched, or confirm to back it up and then replace it.');
           if(!replace) throw new Error('overwrite-cancelled');
+          try {
+            const blobUrl = URL.createObjectURL(selected);
+            const a = document.createElement('a');
+            a.href = blobUrl; a.download = bakName;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(()=>URL.revokeObjectURL(blobUrl), 5000);
+          } catch(e){ /* a blocked download does not cancel a consented replace */ }
         }
         writable = await fileHandle.createWritable();
         opened = true;
@@ -2669,6 +2938,28 @@ function createSink(onWrite){
       return null;
     }
   };
+}
+
+/* v2.16: cheap instant structural check of the just-saved file's header. Reads
+   only the first record and verifies the header text and its column width. It is
+   skipped (returns null = non-blocking) for a multiline header or when the saved
+   file is unavailable. The full re-read validator remains authoritative. */
+async function savedHeaderCheck(file, meta, fmtKey, expectedComposed, expectedCols){
+  try{
+    if(/[\r\n]/.test(expectedComposed || '')) return null;      // multiline header: skip
+    if(!file || !file.size) return null;
+    const headLen = Math.min(file.size, 1 << 20);
+    const buf = new Uint8Array(await file.slice(0, headLen).arrayBuffer());
+    const text = decoderFor(decoderNameFor(meta.kind)).decode(buf);
+    let lineEnd = text.length;
+    for(let k = 0; k < text.length; k++){ const c = text[k]; if(c === '\r' || c === '\n'){ lineEnd = k; break; } }
+    const head = text.slice(0, lineEnd);
+    if(head !== expectedComposed) return { ok:false, note:'saved header text does not match the expected output header' };
+    let cols = -1;
+    try { cols = FORMATS[fmtKey].split(head).length; } catch(e){ cols = -1; }
+    if(cols !== expectedCols) return { ok:false, note:'saved header has ' + cols + ' column(s); expected ' + expectedCols };
+    return { ok:true };
+  }catch(e){ return null; }
 }
 
 async function saveFileCore(){
@@ -2802,16 +3093,15 @@ async function saveFileCore(){
         setBusy('Writing file…', `${pct}% · ${rowCount.toLocaleString()} records written`);
       }
     };
-    await scanFile(state.file, state.detected, state.fmtKey, async (rec, idx) => {
-      // Source record #0 is the original header — already replaced above.
-      if(idx === 0) return;
+    const onDataRow = dataRowStreamer(async (rec) => {
       rowCount++;
       currentRecordIdxForStats = rowCount + 1; // 1-based: header=1, first data row=2 …
       await writeLine(reorderRecord(rec));
       if(rowCount % ON_EVERY === 0){
         await new Promise(r => setTimeout(r, 0)); // let the UI breathe
       }
-    }, onProgress, inHasher ? (b => inHasher.update(b)) : null);
+    });
+    await scanFile(state.file, state.detected, state.fmtKey, onDataRow, onProgress, inHasher ? (b => inHasher.update(b)) : null);
 
     await flushTrailingEol();
 
@@ -2822,11 +3112,30 @@ async function saveFileCore(){
     } catch(e){ console.warn('SHA-256 digest failed:', e); }
     // H3: post-save self-check surfaced to the user (stream saves only).
     const intg = (typeof sink.integrity === 'function') ? sink.integrity() : null;
-    const selfFail = !!(intg && !intg.ok);
+    // B-5: the row count actually written must equal the source data-record
+    // count. A dropped/aborted row scan is exactly what a byte-size self-check
+    // cannot see, so treat any mismatch as an unusable output.
+    const expectedRecs = (state.parseInfo && state.parseInfo.dataRecords != null) ? state.parseInfo.dataRecords : rowCount;
+    const recCountFail = rowCount !== expectedRecs;
+    const sizeFail = !!(intg && !intg.ok);
+    // v2.16: instant header/structure self-check on the just-saved bytes (cheap,
+    // single-record read). Mismatch marks the output unusable immediately.
+    let headerFailNote = null;
+    if(!recCountFail && !sizeFail){
+      const hs = await savedHeaderCheck(lastSavedOutput, state.detected, state.fmtKey, fmt.compose(newHeader), newHeader.length);
+      if(hs && hs.ok === false) headerFailNote = hs.note;
+    }
+    const selfFail = sizeFail || recCountFail || !!headerFailNote;
     let okMsg;
     if(selfFail){
-      const diskTxt = intg.diskSize < 0 ? 'unavailable' : fmtBytesLabel(intg.diskSize);
-      okMsg = `⚠️ Save INCOMPLETE — ${FORMATS[state.fmtKey].label}: on-disk size ${diskTxt} != ${fmtBytesLabel(intg.bytesWritten)} bytes written. DO NOT USE this file — re-save to a NEW file name.`;
+      if(headerFailNote){
+        okMsg = `⚠️ Save INCOMPLETE — ${headerFailNote}. DO NOT USE this file — re-save to a NEW file name.`;
+      } else if(recCountFail){
+        okMsg = `⚠️ Save INCOMPLETE — record count mismatch: ${rowCount.toLocaleString()} row(s) written, but ${expectedRecs.toLocaleString()} data record(s) were read from the source. DO NOT USE this file — re-save to a NEW file name.`;
+      } else {
+        const diskTxt = intg.diskSize < 0 ? 'unavailable' : fmtBytesLabel(intg.diskSize);
+        okMsg = `⚠️ Save INCOMPLETE — ${FORMATS[state.fmtKey].label}: on-disk size ${diskTxt} != ${fmtBytesLabel(intg.bytesWritten)} bytes written. DO NOT USE this file — re-save to a NEW file name.`;
+      }
     } else {
       okMsg = size === null
         ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
@@ -3019,6 +3328,7 @@ function selectClRow(pos){
 function clUnmapRow(pos){
   if(!cl.rows[pos]) return;
   cl.rows[pos].mapped = null;
+  cl.rows[pos].tier = null;
   clRenderAll();
 }
 function clMapSrcToRow(srcIdx, rowIdx){
@@ -3028,6 +3338,7 @@ function clMapSrcToRow(srcIdx, rowIdx){
   // field (e.g. BEGDOC → Bates_Begin AND BEGDOC → Prod_Bates) — those 1:N
   // mappings are intentionally preserved.
   cl.rows[rowIdx].mapped = srcIdx;
+  cl.rows[rowIdx].tier = null; // manual link: not an auto tier
   return true;
 }
 function clRemoveRow(pos){
@@ -3156,10 +3467,20 @@ function renderClRows(){
         ? state.headerNames[r.mapped]
         : '(invalid source index — unmap & remap)';
       const b = document.createElement('b'); b.textContent = srcName;
+      const tb = document.createElement('span');
+      if(r.tier === 1 || r.tier === 2 || r.tier === 3){
+        tb.textContent = 'T' + r.tier;
+        tb.style.cssText = (r.tier === 3)
+          ? 'font-size:9px;padding:0 5px;border-radius:6px;background:#fff3e0;color:#a15c00;border:1px solid #f0cf9f;margin-left:5px;white-space:nowrap;'
+          : 'font-size:9px;padding:0 5px;border-radius:6px;background:#e7efff;color:#1556c9;margin-left:5px;white-space:nowrap;';
+        tb.title = (r.tier === 3)
+          ? 'Low-confidence lenient auto-match (T3) — verify before saving'
+          : (r.tier === 2 ? 'Matched by normalized name (T2)' : 'Matched exactly (T1)');
+      }
       const un = document.createElement('button'); un.className='unlink'; un.textContent='✕'; un.type='button';
       un.title='Unmap this field';
       un.addEventListener('click', e=>{ e.stopPropagation(); clUnmapRow(pos); toast(`Unmapped: ${r.name}`); });
-      chip.append(dir, b, un);
+      chip.append(dir, b, tb, un);
     } else {
       chip.className='cmap un';
       const b = document.createElement('b'); b.textContent='(Empty Header)';
@@ -3356,13 +3677,13 @@ async function saveClientFileCore(){
     await writeLine(fmt.compose(newHeader));
 
     let rowCount = 0, lastPct = -1;
-    await scanFile(state.file, state.detected, state.fmtKey, async (rec, idx) => {
-      if(idx === 0) return;
+    const onDataRow = dataRowStreamer(async (rec) => {
       rowCount++;
       currentRecordIdxForStats = rowCount + 1; // 1-based: header=1, first data row=2 …
       await writeLine(composeRow(rec));
       if(rowCount % 10000 === 0) await new Promise(r=>setTimeout(r,0));
-    }, ({pct}) => {
+    });
+    await scanFile(state.file, state.detected, state.fmtKey, onDataRow, ({pct}) => {
       if(pct !== null && pct !== lastPct){ lastPct = pct; setBusy('Writing client file…', `${pct}% · ${rowCount.toLocaleString()} records written`); }
     }, inHasher ? (b => inHasher.update(b)) : null);
 
@@ -3374,11 +3695,30 @@ async function saveClientFileCore(){
     } catch(e){ console.warn('SHA-256 digest failed:', e); }
     // H3: post-save self-check surfaced to the user (stream saves only).
     const intg = (typeof sink.integrity === 'function') ? sink.integrity() : null;
-    const selfFail = !!(intg && !intg.ok);
+    // B-5: the row count actually written must equal the source data-record
+    // count. A dropped/aborted row scan is exactly what a byte-size self-check
+    // cannot see, so treat any mismatch as an unusable output.
+    const expectedRecs = (state.parseInfo && state.parseInfo.dataRecords != null) ? state.parseInfo.dataRecords : rowCount;
+    const recCountFail = rowCount !== expectedRecs;
+    const sizeFail = !!(intg && !intg.ok);
+    // v2.16: instant header/structure self-check on the just-saved bytes (cheap,
+    // single-record read). Mismatch marks the output unusable immediately.
+    let headerFailNote = null;
+    if(!recCountFail && !sizeFail){
+      const hs = await savedHeaderCheck(lastSavedOutput, state.detected, state.fmtKey, fmt.compose(newHeader), newHeader.length);
+      if(hs && hs.ok === false) headerFailNote = hs.note;
+    }
+    const selfFail = sizeFail || recCountFail || !!headerFailNote;
     let okMsg;
     if(selfFail){
-      const diskTxt = intg.diskSize < 0 ? 'unavailable' : fmtBytesLabel(intg.diskSize);
-      okMsg = `⚠️ Save INCOMPLETE — ${FORMATS[state.fmtKey].label}: on-disk size ${diskTxt} != ${fmtBytesLabel(intg.bytesWritten)} bytes written. DO NOT USE this file — re-save to a NEW file name.`;
+      if(headerFailNote){
+        okMsg = `⚠️ Save INCOMPLETE — ${headerFailNote}. DO NOT USE this file — re-save to a NEW file name.`;
+      } else if(recCountFail){
+        okMsg = `⚠️ Save INCOMPLETE — record count mismatch: ${rowCount.toLocaleString()} row(s) written, but ${expectedRecs.toLocaleString()} data record(s) were read from the source. DO NOT USE this file — re-save to a NEW file name.`;
+      } else {
+        const diskTxt = intg.diskSize < 0 ? 'unavailable' : fmtBytesLabel(intg.diskSize);
+        okMsg = `⚠️ Save INCOMPLETE — ${FORMATS[state.fmtKey].label}: on-disk size ${diskTxt} != ${fmtBytesLabel(intg.bytesWritten)} bytes written. DO NOT USE this file — re-save to a NEW file name.`;
+      }
     } else {
       okMsg = size === null
         ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
@@ -3468,22 +3808,35 @@ function bindClientMode(){
 
   $('#btnClAutoGuess').addEventListener('click', ()=>{
     if(cl.rows.length === 0){ toast('Load client headers first (paste & Parse).'); return; }
+    const sel = document.getElementById('clTierSel');
+    const maxTier = (sel && sel.value) ? Math.max(1, Math.min(3, Number(sel.value) || 2)) : 2;
     const srcNames = state.headerNames;
-    let matched = 0, ambiguous = 0;
+    let n1 = 0, n2 = 0, n3 = 0, skipped = 0;
+    // Guard: within one run a tier-3 (fuzzy/alias) source is used once only, so
+    // several *different* client headers cannot silently claim the same column.
+    const usedT3 = new Set();
     cl.rows.forEach(r=>{
       if(r.mapped !== null) return;
       const targets = [r.hint, r.name].filter(Boolean);
-      let hit = null;
-      for(const t of targets){
-        const idx = uniqueNormalizedIndex(srcNames, t);
-        if(idx !== null){ hit = idx; break; }
-        const key = normKey(t);
-        if(key && srcNames.filter(n=>normKey(n)===key).length > 1) ambiguous++;
+      let res = null;
+      for(const t of targets){ res = findHeaderMatch(t, srcNames, maxTier); if(res) break; }
+      if(res){
+        if(res.tier === 3 && usedT3.has(res.idx)){ skipped++; return; }
+        if(res.tier === 3) usedT3.add(res.idx);
+        r.mapped = res.idx; r.tier = res.tier;
+        if(res.tier === 1) n1++; else if(res.tier === 2) n2++; else n3++;
       }
-      if(hit !== null){ r.mapped = hit; matched++; }
     });
     clRenderAll();
-    toast(`Auto-match complete — ${matched} exact normalized link${matched===1?'':'s'} created.${ambiguous ? ' Ambiguous names were left unmapped.' : ''}`);
+    const parts = [];
+    if(n1) parts.push('T1 exact ' + n1);
+    if(n2) parts.push('T2 similar ' + n2);
+    if(n3) parts.push('T3 lenient ' + n3);
+    let msg = 'Auto-match (tier ' + maxTier + ') — ' + (parts.length ? parts.join(', ') : '0 mapped');
+    if(skipped) msg += ' · ' + skipped + ' lenient link(s) skipped (source already used).';
+    else msg += '.';
+    if(n3) msg += ' Review the highlighted lenient links before saving.';
+    toast(msg);
   });
   const btn = (id,fn)=>{ const el=document.getElementById(id); if(el) el.addEventListener('click', fn); };
   btn('btnClMoveTop', ()=>{ if(cl.sel===null){ toast('Select a client header row first.'); return; } clMoveRow(cl.sel,0); });
@@ -3530,6 +3883,7 @@ function switchClientMode(mode){
 }
 
 async function runSaveLocked(fn){
+  if(coreSelfTestOk === false){ toast('Startup self-test failed — saving is DISABLED for data safety. Reload the page.'); return; }
   if(saveOperationActive){ toast('A save is already in progress.'); return; }
   saveOperationActive = true;
   try { return await fn(); }
@@ -3727,11 +4081,34 @@ function valMappingSummaryText(){
 
 function valAutoMap(){
   if(!validator.src || !validator.out){ toast('Load both files first (original + output).'); return; }
-  const auto = [];
-  validator.outHdr.forEach(outName=> auto.push({ src: outName, out: outName }));
-  valBuildMapFromPairs(auto);
+  if(!validator.srcHdr || !validator.outHdr){ toast('Files loaded but headers are missing.'); return; }
+  const sel = document.getElementById('valTierSel');
+  const maxTier = (sel && sel.value) ? Math.max(1, Math.min(3, Number(sel.value) || 2)) : 2;
+  validator.expectedBlank = new Set();
+  const srcNames = validator.srcHdr.map(n => String(n == null ? '' : n));
+  const used = new Set();
+  const n = { 1:0, 2:0, 3:0 };
+  const mapping = validator.outHdr.map((outName)=>{
+    const res = findHeaderMatch(String(outName == null ? '' : outName), srcNames, maxTier);
+    if(!res) return null;
+    // Tier 1/2 reuse is a deliberate 1:N (identical/duplicate output names).
+    // A tier-3 (fuzzy/alias) match is single-use: it must not claim every column.
+    if(res.tier >= 3 && used.has(res.idx)) return null;
+    used.add(res.idx);
+    n[res.tier]++;
+    return res.idx;
+  });
+  validator.mapping = mapping;
   validator.mappingSource = 'auto';
   valRenderMapping(3);
+  const parts = [];
+  if(n[1]) parts.push('T1 exact ' + n[1]);
+  if(n[2]) parts.push('T2 similar ' + n[2]);
+  if(n[3]) parts.push('T3 lenient ' + n[3]);
+  let msg = 'Auto-Match (tier ' + maxTier + ') — ' + (parts.length ? parts.join(', ') : '0 mapped')
+    + ' · ' + mapping.filter(si=>si===null).length + ' unmapped.';
+  if(n[3]) msg += ' Lenient links are low-confidence — verify before validating.';
+  toast(msg);
   // B-4: re-select identity to a column that is actually mapped so validation
   // is not blocked by an unmapped default identity pick.
   valSelectMappedIdentity();
@@ -3840,6 +4217,19 @@ function valExpectedTransformation(srcRaw, outCell){
   return null;
 }
 
+/* B-6: conservative prefix+digits+suffix identity shape parser used only for a
+   report-only sequence-gap scan. Returns null when the value is not a clean
+   numeric Bates-like token, so an unusual convention never triggers a scan. */
+function identityShape(id){
+  const s = String(id == null ? '' : id);
+  if(!s || s.length > 40) return null;
+  const m = /^(.*?)(\d+)([^\d]*)$/.exec(s);
+  if(!m) return null;
+  const [, prefix, numStr, suffix] = m;
+  if(numStr.length > 15) return null; // Number() would lose precision
+  return { prefix, suffix, width: numStr.length, num: Number(numStr) };
+}
+
 /* Row producers push records into per-side 1-record boxes; the consumer pulls
    A then B alternately so the two files are paired strictly by output order
    while staying at ONE buffered record per side regardless of file size.
@@ -3868,8 +4258,19 @@ function valStreamPair(desc, onPair){
       return r; // null is the EOF marker and is never produced again by that side
     }
     async function runSide(side, cfg){
-      try{ await scanFile(cfg.file, cfg.meta, cfg.fmt, async rec => { await put(side, rec); }, undefined,
-          cfg.hasher ? (b => cfg.hasher.update(b)) : null); }
+      // Align with buildFileIndex's header rule: skip leading blank physical
+      // lines, then treat the first non-blank record as the header (it is emitted
+      // normally and consumed as the header below). This keeps row pairing correct
+      // when a file starts with blank line(s).
+      let headerPending = true;
+      try{ await scanFile(cfg.file, cfg.meta, cfg.fmt, async rec => {
+          if(headerPending){
+            if(isBlankPhysicalRecord(rec)) return;  // leading blank line
+            headerPending = false;                   // first non-blank record = header
+          }
+          await put(side, rec);
+        }, undefined,
+        cfg.hasher ? (b => cfg.hasher.update(b)) : null); }
       catch(e){ pairErr = e; }
       await put(side, null);
     }
@@ -3927,14 +4328,12 @@ async function valRunValidateCore(validationToken){
   if(validator.outInfo && validator.outInfo.utf16TruncatedTail) fatalInputs.push('output has a truncated UTF-16 tail');
   if(fatalInputs.length){ toast('⛔ Validation blocked — ' + fatalInputs.join('; ') + '.'); return; }
   setBusy('Validating…', 'Reading original + output records (streaming). First row of each is the header, which is skipped for data comparison.');
-  const stat = { rows:0, ok:0, identical:0, expected:0, expectedBlank:0, mismatch:0, skipBlank:0, firstMis: [], srcExtra:0, outExtra:0, idMismatch:0, idMisFirst: [] };
+  const stat = { rows:0, ok:0, identical:0, expected:0, expectedBlank:0, mismatch:0, skipBlank:0, firstMis: [], srcExtra:0, outExtra:0, srcShort:0, outShort:0, srcLong:0, outLong:0, idMismatch:0, idMisFirst: [] };
 
   const srcFmt = FORMATS[validator.srcFmt];
   const outFmt = FORMATS[validator.outFmt];
   const srcSkip = validator.srcInfo && validator.srcInfo.unclosedQualifier ? validator.srcInfo.unclosedQualifier : null;
   const outSkip = validator.outInfo && validator.outInfo.unclosedQualifier ? validator.outInfo.unclosedQualifier : null;
-
-  const blankOk = (srcCell, outCell) => !!(String(srcCell||'') === '' && String(outCell||'') === '');
 
   // Byte integrity: hash both files while the comparison stream reads them, so
   // the report can show the ACTUAL re-read digests (constant memory, no extra pass).
@@ -3943,6 +4342,19 @@ async function valRunValidateCore(validationToken){
   // Row-linkage columns for the identity sequence check (G2).
   const identitySrcCol = identityIdx >= 0 ? identityIdx : null;
   const identityOutCol = identityIdx >= 0 ? validator.mapping.indexOf(identityIdx) : -1;
+
+  // B-6: record-identity QC on the SOURCE identity column. Duplicates and blank
+  // control numbers are always worth flagging; a sequence-gap scan only fires
+  // after a uniform '+1' numeric run is firmly established (>=5 rows) so Bates
+  // conventions that are intentionally non-contiguous never raise false alarms.
+  // All B-6 results are ADVISORY and never affect the PASS/FAIL verdict.
+  const identityQcCap = 5000000;
+  const seenSrc = new Set();
+  let qcSkippedSize = false;
+  let idDupSrc = 0, idDupFirst = [];
+  let idBlankSrc = 0, idBlankFirst = [];
+  let idSeqGaps = 0, idSeqGapFirst = [];
+  let gapRun = null; // {prefix,width,suffix,last,count,warm}
 
   await valStreamPair(
     {
@@ -3959,8 +4371,20 @@ async function valRunValidateCore(validationToken){
       const cellsB = recB === null ? null : valSplitRow(validator.outFmt, recB);
       if(recA !== null && recB === null){ stat.srcExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:stat.rows, col:0, src: valEscapeForReport(recA), out:'<missing output row>'}); return; }
       if(recB !== null && recA === null){ stat.outExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:stat.rows, col:0, src:'<missing source row>', out: valEscapeForReport(recB)}); return; }
-      if(cellsA && validator.srcHdr && cellsA.length !== validator.srcHdr.length){ stat.srcExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:`<source schema: ${cellsA.length} cells; expected ${validator.srcHdr.length}>`,out:'<not compared>'}); return; }
-      if(cellsB && validator.outHdr && cellsB.length !== validator.outHdr.length){ stat.outExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:'<not compared>',out:`<output schema: ${cellsB.length} cells; expected ${validator.outHdr.length}>`}); return; }
+      // Short rows (fewer cells than the header) mean trailing empty columns in
+      // positional FE/Concordance/CSV. The writer already pads those with '' and
+      // compares identically, so short source/output rows are validated by padding
+      // rather than failed (removes false FAILs on override/mismatch saves). Only
+      // EXTRA cells - a row with MORE fields than its header - stay a real schema
+      // corruption and fail.
+      if(cellsA && validator.srcHdr && cellsA.length > validator.srcHdr.length){
+        stat.srcLong++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:`<source schema: ${cellsA.length} cells; expected ${validator.srcHdr.length}>`,out:'<not compared>'}); return;
+      }
+      if(cellsA && validator.srcHdr && cellsA.length < validator.srcHdr.length) stat.srcShort++;
+      if(cellsB && validator.outHdr && cellsB.length > validator.outHdr.length){
+        stat.outLong++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:'<not compared>',out:`<output schema: ${cellsB.length} cells; expected ${validator.outHdr.length}>`}); return;
+      }
+      if(cellsB && validator.outHdr && cellsB.length < validator.outHdr.length) stat.outShort++;
 
       for(let oi = 0; oi < validator.mapping.length; oi++){
         const si = validator.mapping[oi];
@@ -3993,6 +4417,43 @@ async function valRunValidateCore(validationToken){
           stat.idMismatch++;
           if(stat.idMisFirst.length < 5) stat.idMisFirst.push({ row: rowIdx + 1, src: valEscapeForReport(idA), out: valEscapeForReport(idB) });
         }
+        // B-6: advisory identity QC on the SOURCE column (never affects FAIL).
+        if(idA === ''){
+          idBlankSrc++;
+          if(idBlankFirst.length < 5) idBlankFirst.push(rowIdx + 1);
+          gapRun = null; // a blank resets any numeric-run confidence
+        } else {
+          if(!qcSkippedSize){
+            if(!seenSrc.has(idA)){
+              seenSrc.add(idA);
+              if(seenSrc.size >= identityQcCap) qcSkippedSize = true;
+            } else {
+              idDupSrc++;
+              if(idDupFirst.length < 5) idDupFirst.push(rowIdx + 1);
+            }
+          }
+          const sh = identityShape(idA);
+          if(sh){
+            if(!gapRun){ gapRun = { prefix: sh.prefix, suffix: sh.suffix, width: sh.width, last: sh.num, count: 1, warm: false }; }
+            else if(gapRun.prefix === sh.prefix && gapRun.width === sh.width && gapRun.suffix === sh.suffix){
+              gapRun.count++;
+              if(gapRun.warm){
+                if(sh.num <= gapRun.last){ gapRun = null; }
+                else {
+                  if(sh.num !== gapRun.last + 1){
+                    const missing = sh.num - gapRun.last - 1;
+                    idSeqGaps += missing;
+                    for(let g = 0; g < missing && idSeqGapFirst.length < 5; g++) idSeqGapFirst.push(rowIdx + 1);
+                  }
+                  gapRun.last = sh.num;
+                }
+              } else {
+                if(sh.num === gapRun.last + 1){ gapRun.last = sh.num; if(gapRun.count >= 5) gapRun.warm = true; }
+                else gapRun = null; // not a contiguous '+1' run
+              }
+            } else gapRun = null;
+          } else gapRun = null;
+        }
       }
       if(stat.rows % 500 === 0) await new Promise(r=>setTimeout(r,0));
     }
@@ -4003,8 +4464,12 @@ async function valRunValidateCore(validationToken){
   const outRec = validator.outInfo ? (validator.outInfo.dataRecords||0) : stat.rows;
   const recMatch = srcRec === outRec;
   const headerCountMatch = validator.mapping.length === validator.outHdr.length;
-  const srcIndexedMismatch = !!(validator.srcInfo && validator.srcInfo.mismatched > 0);
-  const outIndexedMismatch = !!(validator.outInfo && validator.outInfo.mismatched > 0);
+  // Structural schema corruption = rows with MORE fields than the header (a real
+  // column shift / extra-cell defect). SHORT rows (fewer fields) are trailing
+  // empty columns in positional FE/Concordance/CSV and are validated by padding,
+  // so they must NOT drive the indexed FAIL (v2.17 aligns index and per-row logic).
+  const srcIndexedMismatch = !!(validator.srcInfo && (validator.srcInfo.longRows || 0) > 0);
+  const outIndexedMismatch = !!(validator.outInfo && (validator.outInfo.longRows || 0) > 0);
   const truncated = !!(validator.srcInfo && validator.srcInfo.utf16TruncatedTail) || !!(validator.outInfo && validator.outInfo.utf16TruncatedTail);
 
   // ---- Byte-level metadata equality (G3) --------------------------------
@@ -4057,6 +4522,25 @@ async function valRunValidateCore(validationToken){
     stat.idMisFirst.forEach(m=>{ valReportText += `  row ${m.row}: source='${m.src}' output='${m.out}'\n`; });
   }
 
+  // ---- Identity uniqueness QC (B-6, report-only) -------------------------
+  valReportText += `\n== Identity uniqueness QC (report-only) — source column "${(validator.srcHdr && identityIdx >= 0) ? (validator.srcHdr[identityIdx] || '(unnamed)') : '(unnamed)'}" ==\n`;
+  if(qcSkippedSize){
+    valReportText += `Duplicate scan stopped early (source exceeds ${identityQcCap.toLocaleString()} distinct identity values) — result is partial. Duplicates found before the stop: ${idDupSrc.toLocaleString()}.\n`;
+  } else {
+    valReportText += `Distinct identity values : ${seenSrc.size.toLocaleString()}\n`;
+    valReportText += `Duplicate identity values: ${idDupSrc.toLocaleString()}\n`;
+    valReportText += `Blank identity values    : ${idBlankSrc.toLocaleString()}\n`;
+    if(idDupFirst.length)  valReportText += 'First duplicates (row) : ' + idDupFirst.join(', ') + '\n';
+    if(idBlankFirst.length) valReportText += 'First blank id rows    : ' + idBlankFirst.join(', ') + '\n';
+    if(idSeqGaps > 0){
+      valReportText += `Detected sequence gaps  : ${idSeqGaps.toLocaleString()}` + (idSeqGapFirst.length ? ' (first near row ' + idSeqGapFirst[0] + ')' : '') + '\n';
+    } else {
+      valReportText += 'Sequence gap scan       : no uniform +1 run established, or no gaps found.\n';
+    }
+  }
+  valReportText += 'Note: B-6 results are ADVISORY and never affect PASS/FAIL. Duplicates, blanks and non-contiguous\n' +
+    '       numbering can be legitimate in some datasets; confirm against the delivery spec before acting.\n';
+
   // ---- Byte integrity of the actual re-read files (G4 / G1) -------------
   valReportText += `\n== Byte integrity (re-read) ==\nSource re-read SHA-256 : ${srcReadHash || '(hash unavailable)'}\nOutput re-read SHA-256 : ${outReadHash || '(hash unavailable)'}\n`;
   valReportText += `Encoding match         : ${validator.srcMeta && validator.outMeta ? (validator.outMeta.kind === validator.srcMeta.kind ? 'MATCH' : 'MISMATCH ❌ (' + validator.srcMeta.label + ' -> ' + validator.outMeta.label + ')') : '—'}\n`;
@@ -4068,6 +4552,7 @@ async function valRunValidateCore(validationToken){
       : '—';
     valReportText += `EOL (source)          : ${fmtCnt(srcEolInfo)}\n`;
     valReportText += `EOL (output)          : ${fmtCnt(outEolInfo)}\n`;
+    valReportText += 'Note: EOL counts are RECORD-SEPARATOR counts only; newlines embedded inside text-field values are excluded.\n';
   }
   if(savedHashCheckable){
     valReportText += `Saved==Disk source bytes : ${diskSrcMismatch ? 'MISMATCH ❌' : 'MATCH'}\n`;
@@ -4097,8 +4582,14 @@ function valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, 
   A('Record count     : ', recMatch ? 'MATCH' : 'MISMATCH ❌');
   A('Header columns   : orig ', validator.srcHdr ? validator.srcHdr.length : '?', ' / out ', validator.outHdr ? validator.outHdr.length : '?');
   A('Output schema    : ', headerCountMatch ? 'MATCHES mapping length' : 'MISMATCH ❌');
-  A('Source row shape : ', validator.srcInfo && validator.srcInfo.mismatched ? validator.srcInfo.mismatched.toLocaleString() + ' mismatched row(s) ❌' : 'ALL ROWS MATCH HEADER');
-  A('Output row shape : ', validator.outInfo && validator.outInfo.mismatched ? validator.outInfo.mismatched.toLocaleString() + ' mismatched row(s) ❌' : 'ALL ROWS MATCH HEADER');
+  const rowShape = (info) => {
+    if(!info) return '?';
+    if((info.longRows||0) > 0) return (info.longRows||0).toLocaleString() + ' long row(s) (extra cells) ❌';
+    if((info.shortRows||0) > 0) return (info.shortRows||0).toLocaleString() + ' short row(s) padded as trailing empties';
+    return 'ALL ROWS MATCH HEADER';
+  };
+  A('Source row shape : ', rowShape(validator.srcInfo));
+  A('Output row shape : ', rowShape(validator.outInfo));
   if(srcSkip)  A('⚠ Original final record #', srcSkip, ' has an unclosed qualifier.');
   if(outSkip)  A('⚠ Output  final record #', outSkip, ' has an unclosed qualifier.');
   A('');
@@ -4161,6 +4652,7 @@ function wireValDrop(el, input, cb){
 }
 
 async function valRunValidate(){
+  if(coreSelfTestOk === false){ toast('Startup self-test failed — validation is DISABLED for data safety. Reload the page.'); return; }
   const token = ++validationOperationToken;
   try { await valRunValidateCore(token); }
   catch(err){
@@ -4703,16 +5195,143 @@ let SHA256_SELF_TEST_OK = false;
   }
 })();
 
+/* R1: startup pure-core self-test (defense in depth). Runs the core splitters,
+   composers, detectors and encoders against a compact set of fixtures. If any
+   regress, saving and validation are disabled so a broken core can never emit a
+   silent bad delivery in production (no Node/tooling required - it runs here). */
+function runCoreSelfTest(){
+  const fails = [];
+  const t = (cond, name) => { if(!cond) fails.push(name); };
+  try {
+    const F = '\u00FE', D = '\u0014';
+    const mline = 'a\nb\r\nc';
+    const rt = feSplit(feCompose(['DOCID','TXT',mline]));
+    t(rt.length === 3 && rt[2] === mline, 'FE round-trip w/ embedded newlines');
+    t(ccSplit(ccCompose(['x','y'])).join('|') === 'x|y', 'Concordance round-trip');
+    t(csvSplit(csvCompose(['x','y"z'])).join('|') === 'x|y"z', 'CSV quote-escape round-trip');
+    let threw = false; try { feCompose(['a'+D+'b']); } catch(e){ threw = true; }
+    t(threw, 'raw DC4 in value is blocked');
+    let st = false; try { sanitizeScalarValue('a\uD83D'); } catch(e){ st = true; }
+    t(st, 'lone high surrogate blocked');
+    t(sanitizeScalarValue('a\uD83D\uDE00b').length === 4, 'surrogate pair preserved');
+    t(detectFormat(F+'A'+F+D+F+'B'+F) === 'fe', 'detect modern FE');
+    t(detectFormat(F+'SMITH, JOHN'+F+D+F+'B'+F) === 'fe', 'FE header containing comma stays FE');
+    t(detectFormat('"a","b"') === 'csv', 'detect CSV');
+    const crlf = detectEol('a\r\nb');
+    t(!crlf.mixed && crlf.eol === '\r\n', 'detect single CRLF');
+    const lf = detectEol('a\nb\nc');
+    t(!lf.mixed && lf.eol === '\n', 'detect single LF');
+    const loss = { cpLost:0, cpLostFirst:null };
+    const enc = encodeCp1252Chunk('\u00E9\u2603', loss);
+    t(enc.length === 2 && enc[1] === 0x3F && loss.cpLost === 1, 'cp1252 substitution counted');
+    t(identityShape('ABC0007') && identityShape('ABC0007').num === 7 && identityShape('ABC0007').width === 4, 'identityShape width/num');
+    t(identityShape('hello') === null, 'identityShape ignores non-numeric tokens');
+    // UTF-16 LE byte round-trip
+    {
+      const le = textToBytes({ kind: 'utf-16le' }, 'A\u00FE');
+      t(le.length === 4 && le[2] === 0xFE && le[3] === 0x00, 'utf-16le byte order');
+    }
+    // tiered auto-match: normalized tier2, alias tier3, ambiguity never guessed
+    {
+      const srcs = ['DOCID','Control Number','BEGDOC'];
+      const t1 = findHeaderMatch('docid', srcs, 1);
+      const t2 = findHeaderMatch('docid', srcs, 2);
+      t(t1 === null && !!t2 && t2.tier === 2, 'tier 2 maps docid (tier 1 does not)');
+      const al = findHeaderMatch('Control No.', srcs, 3);
+      t(!!al && al.idx === 1 && al.tier === 3, 'tier 3 alias Control No. -> Control Number');
+      const bb = findHeaderMatch('Bates_Begin', srcs, 3);
+      t(!!bb && bb.idx === 2 && bb.tier === 3, 'tier 3 alias Bates_Begin -> BEGDOC');
+      const am = findHeaderMatch('controlno', ['ControlNumber','CONTROLNUMBER'], 3);
+      t(am === null, 'ambiguous alias is never guessed');
+    }
+  } catch(e){ fails.push('self-test crashed: ' + (e && e.message ? e.message : String(e))); }
+  return { ok: fails.length === 0, fails };
+}
+/* v2.16: reusable diagnostics. Re-runs the pure-core self-test at any time,
+   reports result, and keeps saving/validation disabled (fail-closed) whenever the
+   core does not pass. On a failure the save/validate buttons are disabled too. */
+function applySelfTestResult(r, interactive){
+  if(r && r.ok){
+    coreSelfTestOk = true;
+    console.info('DAT Field Reorder pure-core self-test OK (v' + TOOL_VERSION + ')');
+    if(interactive) toast('✅ Core self-test OK (v' + TOOL_VERSION + ') — saving & validation enabled.');
+    return true;
+  }
+  coreSelfTestOk = false;
+  const msg = (r && r.fails && r.fails.length) ? r.fails.join(' | ') : 'unknown failure';
+  console.error('DAT Field Reorder pure-core self-test FAILED:', msg);
+  if(interactive){
+    toast('⛔ Core self-test FAILED — saving and validation DISABLED for data safety. ' + msg);
+  } else {
+    setTimeout(()=>toast('⛔ Startup self-test failed. Saving and validation are DISABLED for data safety. Reload the page.'), 0);
+  }
+  ['btnSave','btnValidateLastReorder','btnValidateLastClient','btnValidate'].forEach(id=>{
+    const b = document.getElementById(id); if(b) b.disabled = true;
+  });
+  return false;
+}
+function runSelfTest(interactive){
+  let r;
+  try { r = runCoreSelfTest(); } catch(e){ r = { ok:false, fails:['crashed: ' + (e && e.message ? e.message : String(e))] }; }
+  return applySelfTestResult(r, !!interactive);
+}
+(function(){ runSelfTest(false); })();
+(function(){
+  const b = document.getElementById('btnSelfTest');
+  if(b) b.addEventListener('click', ()=> runSelfTest(true));
+})();
+
 console.info('DAT Field Reorder v' + TOOL_VERSION + ' — streaming edition. Supported: FE/DC4 DAT (DC4 layout and legacy no-DC4 layout). Concordance, TSV, Pipe, CSV and CP1252 are blocked. All local.');
 
-/* v2.10.0 lineage note: streaming FE/DC4 (DC4 + legacy no-DC4) load/reorder/client-map,
-   fail-closed preflight (DC4-in-value, unpaired UTF-16 surrogate, truncated tail, unclosed
-   qualifier, blank headers, column-count mismatch override), SHA-256 audit of source & every
-   written byte, post-save size self-check, overwrite consent + partial-write warnings +
-   beforeunload guard, 1-Click re-read validator with disk==saved hash chain, identity row
-   linkage, encoding/BOM/EOL style-and-count equality, stale-context invalidation on new
-   source or re-parse, and timestamped report downloads. */
+/* v2.17.0 completes short-row harmonization: the validator's indexed/structural
+   FAIL previously used srcInfo/outInfo.mismatched (which counts SHORT + LONG rows
+   together), so even a purely short-row (trailing-empty) file still failed. Now
+   structural FAIL is driven only by LONG rows (extra cells), matching the padded
+   per-row comparison; the report labels short rows as "padded as trailing empties".
+   v2.16.0 adds: on-demand core diagnostics (footer button re-runs the pure-core
+   self-test; failures keep saving/validation disabled fail-closed) and an instant
+   saved-file header/structure self-check after every save (single-record read of
+   the just-saved file verifies header text + column width before the full 1-Click
+   re-read validator is offered).
+   v2.15.0 fixes a header-alignment bug: when leading blank lines are tolerated,
+   every record consumer must identify the header the same way the loader does.
+   Added dataRowStreamer()/isBlankPhysicalRecord() (skip leading blanks, first
+   non-blank = header) and applied it uniformly to index build, preflight, reorder
+   and client saves, and validator pairing - so a file starting with blank line(s)
+   can no longer have its real header written or sent as a data row.
+   v2.14.0 adds: validator short-row harmonization (source/output rows with fewer
+   cells than the header are padded as trailing empties and compared - matching the
+   writer - so override/mismatch saves validate cleanly instead of false-FAILing;
+   only rows with EXTRA cells are treated as schema corruption and fail). Also adds
+   periodic macrotask yields to the index build for huge files, and widens the startup
+   self-test (UTF-16 byte round-trip + tiered auto-match monotonic/alias/ambiguity).
+   v2.13.0 adds: tiered field auto-matching shared by client Auto-Match and
+   validator Auto-Match Headers — T1 Exact, T2 Similar (normalized), T3 Lenient
+   (eDiscovery alias/synonym groups + guarded fuzzy similarity). Higher tiers map
+   strictly more rows (monotonic); ambiguity is never guessed; tier-3 low-confidence
+   links are tagged and flagged for review; within one run a tier-3 source is single-use.
+   v2.12.0 lineage note. Adds (R) hardening wave on top of v2.11:
+   R1  startup pure-core self-test - saving & validation are DISABLED (fail-closed)
+       if any core splitter/composer/detector/encoder regresses at runtime;
+   R2  EOL accounting is now RECORD-SEPARATOR based (embedded newlines inside
+       text fields are ignored), and a genuinely mixed source keeps its DOMINANT
+       separator style instead of silently forcing CRLF;
+   R3  a stray blank line before the header is tolerated for detection/parsing,
+       so a genuine FE/DC4 file with a leading empty line is no longer rejected;
+   R4  the Node test harness now covers the full File->sniff->index path plus the
+       A-1 decoder-availability branch;
+   R5  removed the unused decodeBuf() helper.
+   v2.11 base: fail-closed decoder-support guard (A-1); structural FE/DC4 format
+   detection (A-2); post-save written-row-count == source data-records (B-5);
+   recoverable backup before replacing an existing destination (B-4); advisory
+   identity uniqueness/blank/sequence-gap QC (B-6); EOL semantics clarified (A-3);
+   Node pure-core test harness (C-7).
+   v2.10 base: streaming FE/DC4 load/reorder/client-map, fail-closed preflight,
+   SHA-256 audit, post-save size self-check, overwrite consent + partial-write
+   warnings, beforeunload guard, 1-Click re-read validator with disk==saved hash
+   chain, identity row linkage, encoding/BOM/EOL style-and-count equality,
+   stale-context invalidation, timestamped report downloads. */
 </script>
-<!-- v2.10.0 FE/DC4 data-integrity hardening release -->
+<!-- v2.17.0 FE/DC4 data-integrity hardening release -->
 </body>
 </html>

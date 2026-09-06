@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<!-- Field Mapper v2.17.0 - FE/DC4 with data-integrity hardening. Fixes the remaining half of validator short-row harmonization: the indexed/structural FAIL used mismatched (short+long together), so short-row (trailing-empty) files still failed. Now only LONG rows (extra cells) drive the structural FAIL, matching the padded per-row comparison, and the report labels short rows as padded. Previous: on-demand diagnostics + instant saved-header check, header-alignment centralization, tiered auto-match (T1/T2/T3), re-read validator, disk hash chain, fail-closed save, decoder guard, structural format detection, row-count assertion, overwrite backup, identity QC, record-separator EOL accounting, pure-core self-test. -->
+<!-- Field Mapper v2.18.1 - PRODUCTION-HARDENED STRICT FE/DC4 profile. Hard-blocks ambiguous legacy no-DC4 FE, literal U+00FE inside fields, raw CR/LF inside fields, mixed record-separator EOL on save/validation, and replacement of an existing non-empty destination. Keeps streaming, fail-closed parsing, post-save re-read validation, SHA-256 audit, row-count reconciliation, encoding/BOM/EOL checks, identity row linkage, and core self-test. -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -442,7 +442,7 @@
 </style>
 </head>
 <body>
-<div style="background:#fff3cd;color:#5c4300;padding:8px 14px;border-bottom:1px solid #e5c76b;font:600 13px system-ui">Hardened scope: FE/DC4 DAT only. Concordance caret, TSV, Pipe, CSV and Windows-1252/CP1252 are blocked.</div>
+<div style="background:#fff3cd;color:#5c4300;padding:8px 14px;border-bottom:1px solid #e5c76b;font:600 13px system-ui">STRICT production profile: FE/DC4 DAT only · Column U+0014 (DC4) · Quote U+00FE (þ) · literal þ/raw CR-LF inside fields, mixed EOL, legacy no-DC4 FE, CP1252, and destructive overwrite are blocked.</div>
 <header class="topbar">
 <span class="creator-credit">Hyunsoo Lee</span>
 <div class="brand">
@@ -477,11 +477,11 @@
 </section>
 <section class="go-steps hidden" id="guide">
 <div class="step-item"><div class="step-num">1</div><div>
-<b>Load .dat</b><span>Drop or browse. Format (þ, ^|^, CSV, Tab, Pipe) and encoding are detected automatically.</span></div></div>
+<b>Load FE/DC4 .dat</b><span>Drop or browse. Strict FE/DC4 structure and UTF-8 / UTF-16 encoding are validated automatically.</span></div></div>
 <div class="step-item"><div class="step-num">2</div><div>
 <b>Reorder / Remove Fields</b><span>Drag rows or use buttons. Press 🗑 to remove any field from output.</span></div></div>
 <div class="step-item"><div class="step-num">3</div><div>
-<b>Save New File</b><span>Writes the <b>same detected format &amp; encoding</b> as the source. Original is untouched.</span></div></div>
+<b>Save New File</b><span>Writes strict <b>FE/DC4</b> using the source encoding and EOL style. Existing non-empty destination files are never replaced.</span></div></div>
 </section>
 <!-- File select -->
 <section class="card hidden" id="fileCard">
@@ -495,13 +495,9 @@
 <span class="f-label">📐 Detected Load Format</span>
 <span class="badge ok" id="fmtBadge">—</span>
 <span style="flex:1"></span>
-<label>Override 
-        <select id="fmtOverride">
-<option value="">Auto (recommended)</option>
-<option value="fe">þ (0xFE)</option>
-</select>
-</label>
-<button class="btn" id="btnReParse" title="Re-parse the file using the selected format">↺ Re-parse</button>
+<span class="meta">Strict FE/DC4 detection · format override disabled</span>
+<select class="hidden" id="fmtOverride" disabled><option value="">Strict Auto</option></select>
+<button class="btn hidden" disabled id="btnReParse" title="Format override is disabled in the strict production profile">↺ Re-parse</button>
 </div>
 <div class="hidden" id="fileSummary"></div>
 </section>
@@ -578,9 +574,8 @@
 <div class="warning-box warn-blocked hidden" id="reorderUnclosedWarn">
 <span>⛔ <b>Save blocked</b> — the source file ends with an unclosed text qualifier. The final record is incomplete, so saving would silently drop it. Fix the file end and reload.</span>
 </div>
-<div class="save-guard-note hidden" id="reorderMismatchOverride" title="Only tick this if the mixed column counts are intentional and you accept the resulting layout">
-<input id="reorderMismatchCbx" type="checkbox"/>
-<span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
+<div class="warning-box warn-blocked hidden" id="reorderMismatchOverride">
+<span>⛔ Save blocked — every data row must have exactly the same field count as the header in strict mode. Repair/regenerate the source; no short/long-row override is available.</span>
 </div>
 <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 transformation audit report (transformation reconciliation, data loss, removed fields). Report is shown after save; download it with the Report button.">
 <input checked="" id="reorderAuditCbx" type="checkbox"/>
@@ -640,12 +635,12 @@ CUSTODIAN	Custodian
 <div class="toolbar">
 <button class="btn sm" id="btnClUnlinkAll">✕ Unmap All</button>
 <label for="clTierSel" class="meta" style="font-size:12px;margin-left:2px">Match:</label>
-<select id="clTierSel" title="Auto-match strictness — higher tiers map more rows">
+<select id="clTierSel" title="Strict auto-match: T1 exact or T2 normalized-name only. Fuzzy/alias T3 is disabled in production mode.">
 <option value="1">T1 Exact</option>
 <option value="2" selected>T2 Similar (recommended)</option>
-<option value="3">T3 Lenient</option>
+
 </select>
-<button class="btn sm" id="btnClAutoGuess" title="Automatically match client headers to similarly named source fields. Strictness = the tier selected above (T3 low-confidence links are highlighted for review).">✨ Auto-Match</button>
+<button class="btn sm" id="btnClAutoGuess" title="Automatically match client headers by exact or normalized name. Fuzzy/alias T3 is disabled in the strict production profile.">✨ Auto-Match</button>
 </div>
 <div class="listbox" id="clSrcList"></div>
 <div class="preview-note" style="margin-top:8px;margin-bottom:0">
@@ -703,13 +698,11 @@ CUSTODIAN	Custodian
 <div class="warning-box warn-blocked hidden" id="clUnclosedWarn">
 <span>⛔ <b>Save blocked</b> — the source file ends with an unclosed text qualifier. The final record is incomplete, so saving would silently drop it. Fix the file end and reload.</span>
 </div>
-<div class="save-guard-note hidden" id="clMismatchOverride" title="Only tick this if the mixed column counts are intentional and you accept the resulting layout">
-<input id="clMismatchCbx" type="checkbox"/>
-<span>Allow save despite column-count mismatches (not recommended — see Parsing Notes below).</span>
+<div class="warning-box warn-blocked hidden" id="clMismatchOverride">
+<span>⛔ Save blocked — every source data row must have exactly the same field count as the header in strict mode. Repair/regenerate the source; no short/long-row override is available.</span>
 </div>
-<div class="save-guard-note hidden" id="clUnmappedOverride" title="Tick this ONLY if you intentionally want blank values written for the unmapped output columns. The header names are still emitted — only their data values are empty.">
-<input id="clUnmappedCbx" type="checkbox"/>
-<span id="clUnmappedGuardLabel">Allow save with unmapped client headers — those output columns will be written as EMPTY values.</span>
+<div class="warning-box warn-blocked hidden" id="clUnmappedOverride">
+<span id="clUnmappedGuardLabel">⛔ Save blocked — every client header must be explicitly mapped in strict mode. Unmapped output columns are never silently written as empty values.</span>
 </div>
 <label class="save-guard-note" style="background:#eef7ff;border-color:#bcd7f5;color:#1e4f8b" title="Create a SHA-256 transformation audit report (transformation reconciliation, data loss, mapping snapshot). Report is shown after save; download it with the Report button.">
 <input checked="" id="clAuditCbx" type="checkbox"/>
@@ -776,10 +769,10 @@ CUSTODIAN	Custodian
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px">
 <button class="btn" id="btnValMapParse">✔ Apply Pasted Map</button>
 <label for="valTierSel" class="meta" style="font-size:12px">Auto-Match tier:</label>
-<select id="valTierSel" title="Auto-Match strictness — higher tiers map more original columns">
+<select id="valTierSel" title="Strict auto-match: T1 exact or T2 normalized-name only. Fuzzy/alias T3 is disabled in production mode.">
 <option value="1">T1 Exact</option>
 <option value="2" selected>T2 Similar (recommended)</option>
-<option value="3">T3 Lenient</option>
+
 </select>
 <button class="btn primary" id="btnValAutoMap">✨ Auto-Match Headers</button>
 <button class="btn" id="btnValClearMap">Clear Map</button>
@@ -813,6 +806,12 @@ CUSTODIAN	Custodian
     eDiscovery load file tool — everything runs locally in your browser; no file is ever uploaded or transmitted.<br/>
     <button type="button" id="btnSelfTest" title="Re-run the pure-core integrity self-test and show the result (failures disable saving/validation)." style="margin-top:10px;cursor:pointer;border:0;padding:6px 12px;border-radius:8px;background:#1556c9;color:#fff;font-size:12px">🩺 Run core self-check</button>
   </p>
+<section class="card hidden" id="operationErrors" aria-live="polite">
+<h2 style="font-size:15px">Operation errors — local session</h2>
+<p id="operationErrorSummary" style="white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0"></p>
+<button class="btn" id="btnDownloadErrors" type="button">Download Error Report (.json)</button>
+<p class="meta">Reports stay local and include filenames. Error samples are limited; the total count is retained.</p>
+</section>
 </main>
 <!-- Validation report modal (shown after save when the audit checkbox is on) -->
 <div class="audit-overlay hidden" id="auditOverlay">
@@ -835,8 +834,8 @@ CUSTODIAN	Custodian
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const TOOL_VERSION = '2.17.0';
-const TOOL_BUILD = '2026-09-05';
+const TOOL_VERSION = '2.18.1';
+const TOOL_BUILD = '2026-09-06-h3';
 // R1: set by the startup pure-core self-test. When false, saving & validation
 // are disabled (fail-closed) so a regression in the core splitters/parsers can
 // never cause a silent bad delivery.
@@ -845,9 +844,9 @@ let coreSelfTestOk = null;
    DAT Field Reorder — multi-format load file reorder/removal
    BIG-FILE STREAMING EDITION
 
-   Formats:   þ(0xFE) · Concordance ^|^ · CSV · Tab · Pipe
-   Encodings: UTF-8(±BOM) / UTF-16 LE·BE(+BOM) / Windows-1252
-   Line ends: CRLF / LF / CR
+   Production format: strict FE/DC4 only (quote U+00FE / column U+0014)
+   Encodings: UTF-8(±BOM) / UTF-16 LE·BE(+BOM); CP1252 blocked
+   Line ends: CRLF / LF / CR, but mixed record-separator EOL is blocked on save
 
    Architecture (scale: millions of rows × hundreds of columns,
    file sizes of many GB):
@@ -944,62 +943,53 @@ function sanitizeScalarValue(s){
 /* Format dialect field splitters / composers (raw-level parse is
    handled by RecordStreamer below; field-level parsing is shared
    with the ORIGINAL field semantics). */
+function feValueSafetyIssue(value){
+  const v = String(value == null ? '' : value);
+  if(v.includes(FE)) return 'contains literal þ (U+00FE), reserved as the FE text qualifier';
+  if(v.includes(FE_DELIM)) return 'contains raw DC4 (U+0014), reserved as the FE column delimiter';
+  if(/[\r\n]/.test(v)) return 'contains raw CR/LF; strict Relativity-style DAT requires one logical document per physical line (use the configured long-text newline delimiter, typically ® / U+00AE)';
+  return null;
+}
+
+/* Strict production FE/DC4 parser.
+   - Multi-column rows MUST use U+0014 between fully þ-qualified fields.
+   - A one-column row is legal without U+0014.
+   - Literal þ inside a value is deliberately unsupported/blocked: without a DC4
+     separator a sequence such as þaþþbþ is ambiguous between an escaped thorn
+     and a legacy no-DC4 two-column dialect. Failing closed prevents silent
+     schema changes and guarantees feSplit(feCompose(x)) for every writable x.
+   - Raw CR/LF inside a field is blocked; long-text line breaks belong in the
+     configured newline delimiter (Relativity default ® / U+00AE), not record EOL.
+*/
 function feSplit(rec){
   const s = String(rec);
-  // Modern FE/DC4 layout carries a DC4 (0x14) column separator between every
-  // pair of þ…þ fields — strict path (unchanged).
-  if(s.indexOf(FE_DELIM) >= 0){
-    const cols = s.split(FE_DELIM);
-    const out = [];
-    for(let ci=0; ci<cols.length; ci++){
-      const col = cols[ci];
-      if(col.length < 2 || col[0] !== FE || col[col.length-1] !== FE){
-        throw new Error(`Malformed FE/DC4 record: column ${ci+1} is not fully enclosed by þ qualifiers.`);
-      }
-      const inner = col.slice(1,-1);
-      let v = '';
-      for(let i=0;i<inner.length;i++){
-        if(inner[i] === FE){
-          if(inner[i+1] === FE){ v += FE; i++; }
-          else throw new Error(`Malformed FE/DC4 record: unescaped þ in column ${ci+1}.`);
-        } else if(inner[i] === FE_DELIM){
-          throw new Error(`Malformed FE/DC4 record: raw DC4 inside column ${ci+1}.`);
-        } else v += inner[i];
-      }
-      out.push(v);
-    }
-    return out;
+  if(s.length < 2 || s[0] !== FE || s[s.length-1] !== FE){
+    throw new Error('Malformed FE/DC4 record: record is not fully enclosed by þ qualifiers.');
   }
-
-  // F2: legacy Summation-style layout (no DC4 separator byte) — fields are
-  // consecutive þ…þ pairs: þaþþbþ → ['a','b']. Empty fields (þþ) are legal.
-  // NOTE: this legacy layout has NO escape for a literal þ inside a value;
-  // every þ is treated as a field-boundary toggle. A single-column record
-  // (no DC4 at all) parses identically under both the modern and legacy rules.
+  const cols = s.indexOf(FE_DELIM) >= 0 ? s.split(FE_DELIM) : [s];
   const out = [];
-  let v = '';
-  let open = false;
-  let sawField = false;
-  for(let i=0;i<s.length;i++){
-    const ch = s[i];
-    if(ch === FE){
-      if(open){ out.push(v); v = ''; open = false; sawField = true; }
-      else open = true;
-    } else if(open){
-      v += ch;
-    } else {
-      throw new Error('Malformed legacy FE record: unexpected character outside þ qualifiers at position ' + (i+1) + '.');
+  for(let ci=0; ci<cols.length; ci++){
+    const col = cols[ci];
+    if(col.length < 2 || col[0] !== FE || col[col.length-1] !== FE){
+      throw new Error(`Malformed FE/DC4 record: column ${ci+1} is not fully enclosed by þ qualifiers.`);
     }
+    const inner = col.slice(1,-1);
+    const issue = feValueSafetyIssue(inner);
+    if(issue) throw new Error(`Unsafe FE/DC4 record: column ${ci+1} ${issue}.`);
+    out.push(inner);
   }
-  if(open) throw new Error('Malformed legacy FE record: unclosed þ qualifier at end of record.');
-  if(!sawField) throw new Error('Malformed legacy FE record: no þ-qualified fields found.');
   return out;
 }
 function feCompose(fields){
+  let units = 0;
+  if(!fields.length) throw new Error('Cannot write an empty column plan.');
   return fields.map((value,ci)=>{
     const v = sanitizeScalarValue(value==null?'':String(value));
-    if(v.includes(FE_DELIM)) throw new Error(`Cannot write FE/DC4: column ${ci+1} contains raw DC4 (U+0014), which has no escape representation.`);
-    return FE + v.replace(/\u00FE/g, FE+FE) + FE;
+    const issue = feValueSafetyIssue(v);
+    if(issue) throw new Error(`Cannot write strict FE/DC4: column ${ci+1} ${issue}.`);
+    units += v.length + 2 + (ci ? 1 : 0);
+    if(units > MAX_RECORD_UNITS) throw recordTooLargeError('output', currentRecordIdxForStats);
+    return FE + v + FE;
   }).join(FE_DELIM);
 }
 
@@ -1070,10 +1060,10 @@ function tabCompose(fields){ return fields.join('\t'); }
 function pipeCompose(fields){ return fields.join('|'); }
 function unsafeClientHeader(fmtKey, name){
   const v = String(name == null ? '' : name);
+  if(fmtKey === 'fe'){ if(v.trim() === '') return 'is blank'; return feValueSafetyIssue(v); }
   if(/[\r\n]/.test(v)) return 'contains a line break';
   if(fmtKey === 'tsv' && v.includes('\t')) return 'contains a tab delimiter';
   if(fmtKey === 'pipe' && v.includes('|')) return 'contains a pipe delimiter';
-  if(fmtKey === 'fe' && /\u0014/.test(v)) return 'contains raw DC4 (U+0014), which cannot be escaped';
   if(fmtKey === 'cc' && v.includes('^|^')) return 'contains the Concordance separator token';
   return null;
 }
@@ -1087,10 +1077,14 @@ function pipeSplit(rec){ return rec.split('|'); }
    or an extremely pathological cell, so we abort cleanly instead of
    silently exhausting memory.
    NOTE: this compares against JS string .length, i.e. UTF-16 code
-   units (≈2 bytes each in memory), so 128M units ≈ up to 256MB of
+   units (≈2 bytes each in memory), so 64M units ≈ up to 128MB of
    string data plus copies. The old 768M-unit cap could silently reach
    multiple GB and freeze/terminate the tab. */
-const MAX_RECORD_UNITS = 128 * 1024 * 1024;
+// v2.18.1: tighter per-record ceiling reduces browser OOM risk while still
+// allowing very large inline-text records. Preview retention is capped separately
+// so the first four pathological records cannot pin hundreds of MB in memory.
+const MAX_RECORD_UNITS = 64 * 1024 * 1024;
+const MAX_PREVIEW_RECORD_UNITS = 1 * 1024 * 1024;
 function recordTooLargeError(kind, recNum){
   return new Error((kind === 'quoted' ? 'A single quoted record' : 'A single data line') +
     ` (record #${recNum}) exceeds the safety limit of ${(MAX_RECORD_UNITS/1024/1024).toFixed(0)}M UTF-16 code units per logical record. This usually indicates inline extracted text, a missing EOL, or an unclosed qualifier. Split extracted text to external files or repair the load file; do not raise this limit without memory testing.`);
@@ -1098,7 +1092,7 @@ function recordTooLargeError(kind, recNum){
 
 const FORMATS = {
   fe: {
-    key:'fe', label:'þ 0xFE', hint:'þvalueþ [0x14] þvalueþ',
+    key:'fe', label:'Strict FE/DC4', hint:'þvalueþ [U+0014] þvalueþ',
     quote: FE, skipDoubled:false,
     split: feSplit, compose: feCompose
   },
@@ -1448,7 +1442,10 @@ function createStreamDecoder(meta){
   const name = decoderNameFor(meta.kind);
   // Fatal UTF-8 prevents late-file malformed byte sequences from silently
   // becoming U+FFFD after a clean sniff sample.
-  const dec = decoderFor(name, meta.kind === 'utf-8');
+  // scanFile already removes the declared BOM. Preserve any subsequent U+FEFF
+  // as content and reject malformed UTF-16 instead of manufacturing U+FFFD.
+  decoderFor(name, true); // enforce the browser support guard
+  const dec = new TextDecoder(name, { fatal:true, ignoreBOM:true });
   let carry = null;
   const isUtf16 = meta.kind === 'utf-16le' || meta.kind === 'utf-16be';
   return {
@@ -1567,25 +1564,24 @@ function detectEol(text){
    itself contains a comma, pipe or tab (which the old threshold-based heuristic
    could misclassify as CSV/pipe/TSV and then parse every row corruptly). */
 function looksLikeFeRecord(s){
-  const t = s.trim();
-  if(t.length < 2 || t[0] !== FE || t[t.length-1] !== FE) return false;
-  let open = false;
-  for(let i=0;i<t.length;i++){
-    const ch = t[i];
-    if(ch === FE) open = !open;
-    else if(open){ /* inside a qualifier - any content is fine */ }
-    else if(ch === FE_DELIM){ /* DC4 column separator between FE fields */ }
-    else return false; // stray byte outside a qualifier: not an FE record
-  }
-  return !open;
+  const t = String(s == null ? '' : s).trim();
+  try { feSplit(t); return true; } catch(e){ return false; }
+}
+function looksLikeLegacyNoDc4FeRecord(s){
+  const t = String(s == null ? '' : s).trim();
+  // More than the two outer FE qualifiers, no DC4, and otherwise enclosed: this
+  // is ambiguous/legacy and is intentionally rejected by the strict profile.
+  return t.length >= 4 && t[0] === FE && t[t.length-1] === FE &&
+    t.indexOf(FE_DELIM) < 0 && countChar(t, FE) > 2;
 }
 
-/* Format heuristic - driven by the decoded sample. FE is decided first on
-   structure (not on a delimiter-count threshold) so a genuine FE file is never
-   handed to a plain-delimiter splitter. */
+/* Format heuristic - driven by the decoded sample. Strict FE/DC4 is decided
+   first. Ambiguous legacy no-DC4 FE gets its own blocked classification so a
+   manual/heuristic path can never silently reinterpret it as modern FE/DC4. */
 function detectFormat(text){
   const head = firstMeaningfulLine(text);
   if(looksLikeFeRecord(head)) return 'fe';
+  if(looksLikeLegacyNoDc4FeRecord(head)) return 'legacy-fe';
   const caret = countChar(head, '^');
   const headTrim = head.trim();
   if(caret >= 2 && headTrim.startsWith('^') && head.includes('^|')) return 'cc';
@@ -1747,7 +1743,14 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   // BOM (the TextDecoder would otherwise never see those bytes), so explicitly
   // feed the BOM bytes first so the source hash covers the full original file
   // (BOM inclusive). metaBomBytes() returns an empty array when no BOM exists.
-  if(onRawChunk && meta.hasBOM && meta.bomBytes > 0) onRawChunk(metaBomBytes(meta));
+  if(meta.bomBytes > 0){
+    const actualBom = new Uint8Array(await file.slice(0, meta.bomBytes).arrayBuffer());
+    const expectedBom = metaBomBytes(meta);
+    if(actualBom.length !== expectedBom.length || actualBom.some((b,i)=>b!==expectedBom[i])){
+      throw new Error('Source BOM changed since encoding detection. Reload the file.');
+    }
+    if(onRawChunk) onRawChunk(actualBom);
+  }
   let offset = meta.bomBytes;
   let lastProgressPct = -1;
   // R2: record-separator EOL accounting. Only EOLs that terminate a logical
@@ -1760,8 +1763,10 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   let openQuote = false; // inside a text qualifier
   let qPending = false;  // doubled-quote straddling a chunk boundary (CSV)
   let sepCr = false;     // boundary CR at previous chunk end awaiting a possible LF
+  let lastCharacter = '';
   const feed = (text) => {
     if(!text) return;
+    lastCharacter = text[text.length-1];
     let i = 0;
     const n = text.length;
     if(sepCr){
@@ -1802,6 +1807,8 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
     let end = Math.min(offset + CHUNK_BYTES, total);
     let bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
 
+    if(bytes.length !== end - offset) throw new Error('Source read returned an unexpected byte count.');
+
     // A UTF-16 code unit must never be split across chunks. CHUNK_BYTES is
     // even, so this only matters for an odd tail at EOF; when it happens,
     // absorb one more byte so decoding stays aligned with unit boundaries.
@@ -1841,7 +1848,7 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   const broken = await streamer.flush();
   const eolInfo = finishEols();
   return { unclosedQualifier: broken ? broken.record : null, utf16TruncatedTail: !!tail.truncatedTail,
-    eolInfo };
+    eolInfo, origHadTrailingEOL: lastCharacter === '\r' || lastCharacter === '\n' };
 }
 
 /* =============================================================
@@ -1860,13 +1867,14 @@ const state = {
   eolCounts: {crlf:0,lfOnly:0,crOnly:0},
   origHadTrailingEOL: true,
   headerNames: [],
-  previews: [],          // first 4 data rows, raw record text
+  previews: [],          // first 4 data rows; oversized rows use lightweight omission markers
   parseInfo: {
     headerRaw: null,
     dataRecords: 0,
     rowFieldCounts: null,
     multiline: 0,
-    mismatchedRows: 0
+    mismatchedRows: 0,
+    leadingBlankRecords: 0
   },
   orderTarget: [],
   selection: null,
@@ -1875,10 +1883,46 @@ const state = {
   unclosedQualifier: null
 };
 
+/* v2.18.1 source-load transaction guard. Selecting a new file immediately
+   invalidates the previously active source BEFORE asynchronous parsing starts.
+   A failed new load therefore leaves NO active source instead of silently
+   falling back to the prior case/load file. */
+function invalidateActiveSourceForNewLoad(pendingName){
+  state.file = null;
+  state.fileName = null;
+  state.sizeBytes = 0;
+  state.detected = null;
+  state.fmtKey = null;
+  state.eol = '\r\n';
+  state.eolLabel = 'CRLF (Windows)';
+  state.mixedEol = false;
+  state.eolCounts = {crlf:0,lfOnly:0,crOnly:0};
+  state.origHadTrailingEOL = true;
+  state.headerNames = [];
+  state.previews = [];
+  state.parseInfo = { headerRaw:null, dataRecords:0, rowFieldCounts:null, multiline:0,
+    mismatchedRows:0, shortRows:0, longRows:0, parseErrors:0,
+    parseErrorFirst:null, parseErrorMessage:null, leadingBlankRecords:0 };
+  state.orderTarget = [];
+  state.selection = null;
+  state.utf16TruncatedTail = false;
+  state.unclosedQualifier = null;
+  if(typeof invalidateLastSaved === 'function') invalidateLastSaved();
+  if(typeof clResetUi === 'function') clResetUi();
+  const ws = document.getElementById('workspace'); if(ws) ws.classList.add('hidden');
+  const fs = document.getElementById('fileSummary'); if(fs){ fs.innerHTML=''; fs.classList.add('hidden'); }
+  const fb = document.getElementById('fmtBar'); if(fb) fb.classList.add('hidden');
+  const ic = document.getElementById('issuesCard'); if(ic) ic.classList.add('hidden');
+  const iz = document.getElementById('issuesList'); if(iz) iz.textContent='';
+  updateSaveGuardUi();
+  if(pendingName) toast('Analyzing new source — previous source has been invalidated: ' + pendingName);
+}
+
 /* =============================================================
    Full streaming parse (pass 1) — builds header / previews / stats
    ============================================================= */
 async function buildFileIndex(file, meta, fmtKey, onProgress){
+  const analyzedHasher = createSha256();
   const rowFieldCounts = new Map();
   let dataRecords = 0;
   let previews = [];
@@ -1889,6 +1933,7 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
   let parseErrors = 0;
   let parseErrorFirst = null;
   let parseErrorMessage = null;
+  let leadingBlankRecords = 0;
 
   let handledForYield = 0;
   const handle = async (rec) => {
@@ -1897,7 +1942,7 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
       // file that starts with an empty line is still parsed (a truly blank file
       // yields no header and is reported below). Only whitespace-only records
       // are skipped; a real FE header that happens to be empty is not guessed.
-      if(isBlankPhysicalRecord(rec)) return;
+      if(isBlankPhysicalRecord(rec)){ leadingBlankRecords++; return; }
       headerDone = true;
       headerRaw = rec;
       const fields = FORMATS[fmtKey].split(rec).map(s => sanitizeScalarValue(s));
@@ -1913,12 +1958,18 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
     rowFieldCounts.set(c, (rowFieldCounts.get(c)||0) + 1);
     if(rec.indexOf('\n') >= 0 || rec.indexOf('\r') >= 0) multiline++;
     dataRecords++;
-    if(previews.length < 4) previews.push(rec);
+    if(previews.length < 4){
+      if(rec.length <= MAX_PREVIEW_RECORD_UNITS){
+        previews.push({ record: rec, omitted:false, row:dataRecords, units:rec.length });
+      } else {
+        previews.push({ record:null, omitted:true, row:dataRecords, units:rec.length });
+      }
+    }
     // Periodic macrotask yield keeps a very large file from freezing the UI.
     if((++handledForYield) % 100000 === 0) await new Promise(r => setTimeout(r, 0));
   };
 
-  const scanResult = await scanFile(file, meta, fmtKey, handle, onProgress);
+  const scanResult = await scanFile(file, meta, fmtKey, handle, onProgress, bytes=>analyzedHasher.update(bytes));
 
   if(!headerDone || !headerNames || headerNames.filter(n=>n.trim()!=='').length === 0){
     return null;
@@ -1933,6 +1984,8 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
   });
 
   return {
+    byteHash: analyzedHasher.hexDigest(),
+    origHadTrailingEOL: scanResult.origHadTrailingEOL,
     headerRaw,
     headerNames,
     previews,
@@ -1942,6 +1995,7 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
     parseErrors,
     parseErrorFirst,
     parseErrorMessage,
+    leadingBlankRecords,
     mismatched,
     shortRows,
     longRows,
@@ -1978,6 +2032,26 @@ const busyLabelEl = $('#busyLabel');
 const toastEl = $('#toast');
 let toastTimer = null;
 let loadToken = 0;
+
+const operationErrors = { schemaVersion:1, total:0, omitted:0, entries:[] };
+function reportOperationError(operation, err, file){
+  const bounded = value => value == null ? null : String(value).slice(0,2048);
+  const entry = {
+    operationId: TOOL_BUILD + '-' + (operationErrors.total+1), timestampUtc:new Date().toISOString(),
+    operation, fileName:bounded(file && file.name), category:bounded(err && err.name) || 'Error',
+    byteOffset:Number.isSafeInteger(err && err.byteOffset) ? err.byteOffset : null,
+    recordNumber:Number.isSafeInteger(err && err.recordNumber) ? err.recordNumber : null,
+    physicalLine:null, fieldNumber:null, identity:null, rawSnippet:null,
+    message:bounded(err && err.message ? err.message : err),
+    suggestedAction:'Do not deliver an unverified output. Resolve this error, reload the source if necessary, and repeat save/validation.'
+  };
+  operationErrors.total++;
+  if(operationErrors.entries.length >= 100){ operationErrors.entries.shift(); operationErrors.omitted++; }
+  operationErrors.entries.push(entry);
+  const panel=$('#operationErrors'), summary=$('#operationErrorSummary');
+  if(panel) panel.classList.remove('hidden');
+  if(summary) summary.textContent=operationErrors.total+' error(s) this session. Latest: '+operation+' — '+entry.message;
+}
 
 function toast(msg){
   toastEl.textContent = msg;
@@ -2065,72 +2139,50 @@ function updateSaveGuardUi(){
 
   const mm = headerMismatchSummary();
   const reorderOver = $('#reorderMismatchOverride');
-  const reorderCbx = $('#reorderMismatchCbx');
-  if(reorderOver){ reorderOver.classList.toggle('hidden', !mm); if(!mm && reorderCbx) reorderCbx.checked = false; }
+  if(reorderOver) reorderOver.classList.toggle('hidden', !mm);
   const clOver = $('#clMismatchOverride');
-  const clCbx = $('#clMismatchCbx');
-  if(clOver){ clOver.classList.toggle('hidden', !mm); if(!mm && clCbx) clCbx.checked = false; }
+  if(clOver) clOver.classList.toggle('hidden', !mm);
 
-  // Client-mode hard stop: unmapped client headers would silently be written
-  // as empty columns. The override checkbox below is the only way past this
-  // guard (explicit consent). The banner auto-hides/clears when nothing is
-  // unmapped, keeping the user flow as light as possible.
+  // Strict client mode: every requested output header must be mapped.
   const unOver = $('#clUnmappedOverride');
-  const unCbx = $('#clUnmappedCbx');
   if(unOver){
     let n = 0;
     if(typeof cl !== 'undefined' && cl.rows) n = cl.rows.filter(r=>r.mapped===null).length;
     unOver.classList.toggle('hidden', n === 0);
-    if(n === 0 && unCbx) unCbx.checked = false;
     const unLbl = $('#clUnmappedGuardLabel');
     if(unLbl && n > 0){
-      unLbl.textContent = `Allow save with ${n} unmapped client header${n===1?'':'s'} — ${n===1?'this column':'these columns'} will be written as EMPTY values. (Recommended: map ${n===1?'it':'them'} on the left first.)`;
+      unLbl.textContent = `⛔ Save blocked — ${n} client header${n===1?' is':'s are'} unmapped. Strict mode never writes unmapped delivery columns as implicit blanks.`;
     }
   }
 }
 
-/* Shared EOL/trailing-EOL probe used by both loadFile and the Format-Override
-   re-parse so the trailing-EOL state is always derived the same way. Decode
-   failures on the tail probe are deliberately ignored — it is advisory only. */
-async function probeFileEol(file, meta){
-  const headText = meta.sampleText;
-  const eolInfo = headText ? detectEol(headText.slice(0, 1 << 20)) : detectEol('');
-  let trailing = '';
-  const sz = file.size;
-  try {
-    if(sz > 0){
-      const tailStart = Math.max(0, meta.bomBytes, sz - 65536);
-      const tailBuf = new Uint8Array(await file.slice(tailStart, sz).arrayBuffer());
-      if(tailBuf.length){
-        trailing += decoderFor(decoderNameFor(meta.kind)).decode(tailBuf);
-      }
-    }
-  } catch(e){ /* ignore */ }
-  return { ...eolInfo, origHadTrailingEOL: /[\r\n]$/.test(trailing) };
-}
-
 /* Loader entry -------------------------------------------------- */
 async function loadFile(file){
+  if(saveOperationActive){ toast('Wait for the active save to finish before loading a source.'); return; }
   const token = ++loadToken;
+  invalidateActiveSourceForNewLoad(file.name || 'selected file');
+  state.parsing = true;
   setBusy('Analyzing file…', 'Detecting encoding & format…');
   try{
     const meta = await sniffMeta(file);
     if(meta.kind === 'cp1252') throw new Error('Windows-1252/CP1252 is blocked. Convert the source to UTF-8 or UTF-16 through an approved workflow, then reload it.');
-    let fmtKey = (state.manualFmt && FORMATS[state.manualFmt]) ? state.manualFmt : detectFormat(meta.sampleText);
-    if(fmtKey !== 'fe') throw new Error('Blocked format. This release accepts FE/DC4 DAT only.');
-    if(!FORMATS[fmtKey]) fmtKey = 'pipe';
-
-    // detect EOL + trailing-EOL from a small prefix & suffix scan
-    const eolProbeResult = await probeFileEol(file, meta);
+    const detectedFmt = detectFormat(meta.sampleText);
+    if(detectedFmt === 'legacy-fe') throw new Error('Blocked ambiguous/legacy FE dialect: multiple þ-qualified fields were found without the required U+0014/DC4 column separator. Convert through an approved workflow; this strict release will not reinterpret it.');
+    if(detectedFmt !== 'fe') throw new Error('Blocked format. This strict release accepts FE/DC4 DAT only (quote U+00FE, column U+0014).');
+    const fmtKey = 'fe';
 
     // full streaming pass
     const parsed = await buildFileIndex(file, meta, fmtKey, ({pct}) => {
+      if(token !== loadToken) throw new Error('Source analysis superseded.');
       if(pct !== null) setBusy('Analyzing file…', `${pct}% · ${(file.size/1048576).toFixed(1)} MB scanned`);
     });
     if(!parsed){
-      toast('⚠️ No parseable header found. Try another format with the override.');
+      toast('⚠️ No parseable strict FE/DC4 header found.');
       clearBusy();
       return;
+    }
+    if(parsed.leadingBlankRecords > 0){
+      throw new Error(`Blocked structure: ${parsed.leadingBlankRecords} blank physical line${parsed.leadingBlankRecords===1?'':'s'} appear before the header. Strict mode requires the header to be the first physical record.`);
     }
     if(token !== loadToken){
       // A newer file was opened while this scan was running — discard this one.
@@ -2142,15 +2194,16 @@ async function loadFile(file){
     state.sizeBytes = file.size;
     state.detected = meta;
     state.fmtKey = fmtKey;
-    const fullEol = parsed.eolInfo || eolProbeResult;
+    const fullEol = parsed.eolInfo;
     state.eol = fullEol.eol || '\r\n';
     state.eolLabel = fullEol.label || 'CRLF (Windows)';
     state.mixedEol = !!fullEol.mixed;
     state.eolCounts = fullEol.counts || {crlf:0,lfOnly:0,crOnly:0};
-    state.origHadTrailingEOL = eolProbeResult.origHadTrailingEOL;
+    state.origHadTrailingEOL = parsed.origHadTrailingEOL;
     state.headerNames = parsed.headerNames;
     state.previews = parsed.previews;
     state.parseInfo = {
+      byteHash: parsed.byteHash,
       headerRaw: parsed.headerRaw,
       dataRecords: parsed.dataRecords,
       rowFieldCounts: parsed.rowFieldCounts,
@@ -2160,7 +2213,8 @@ async function loadFile(file){
       longRows: parsed.longRows || 0,
       parseErrors: parsed.parseErrors || 0,
       parseErrorFirst: parsed.parseErrorFirst || null,
-      parseErrorMessage: parsed.parseErrorMessage || null
+      parseErrorMessage: parsed.parseErrorMessage || null,
+      leadingBlankRecords: parsed.leadingBlankRecords || 0
     };
     state.unclosedQualifier = parsed.unclosedQualifier || null;
     state.utf16TruncatedTail = !!parsed.utf16TruncatedTail;
@@ -2182,10 +2236,12 @@ async function loadFile(file){
     if(typeof clResetUi === 'function') clResetUi();
     toast(`✅ ${file.name} — ${FORMATS[fmtKey].label} · ${parsed.dataRecords.toLocaleString()} data record${parsed.dataRecords===1?'':'s'}` + (lastSavedWasActive ? ' · 이전 산출물의 1-Click 검증은 해제됨 — 새 원본으로 저장 후 다시 활성화됩니다.' : ''));
   } catch(err){
+    if(token !== loadToken) return;
+    reportOperationError('source-load', err, file);
     console.error(err);
     toast('❌ Could not process the file: ' + (err && err.message ? err.message : 'unknown error'));
   } finally {
-    clearBusy();
+    if(token === loadToken){ state.parsing = false; clearBusy(); }
   }
 }
 
@@ -2463,15 +2519,22 @@ function renderPreview(){
     tr.appendChild(td);
     previewTbody.appendChild(tr);
   } else {
-    rows.forEach((rec,ri)=>{
-      let fields = [];
-      try { fields = fmt.split(rec); } catch(e){ fields = []; }
+    rows.forEach((entry,ri)=>{
+      const rec = (typeof entry === 'string') ? entry : entry.record;
+      const rowNo = (entry && typeof entry === 'object' && entry.row) ? entry.row : (ri+1);
       const tr = document.createElement('tr');
       const td0 = document.createElement('td');
-      td0.textContent = String(ri+1);
+      td0.textContent = String(rowNo);
       td0.style.fontWeight='600';
       td0.style.color='#526079';
       tr.appendChild(td0);
+      if(entry && typeof entry === 'object' && entry.omitted){
+        const td = document.createElement('td'); td.colSpan = order.length; td.className='light-txt';
+        td.textContent = `Preview omitted for this large record (${fmtBytesLabel(entry.units * 2)} max in-memory estimate). The record is still fully scanned and validated.`;
+        tr.appendChild(td); previewTbody.appendChild(tr); return;
+      }
+      let fields = [];
+      try { fields = fmt.split(rec); } catch(e){ fields = []; }
       order.forEach(origIdx=>{
         const td = document.createElement('td');
         const v = (origIdx < fields.length) ? sanitizeScalarValue(fields[origIdx]) : '';
@@ -2499,13 +2562,13 @@ function showIssues(){
   if(p.mismatchedRows > 0){
     const parts=[];
     p.rowFieldCounts.forEach((cnt,c)=>{ if(c !== mainCnt) parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`); });
-    list.push(`📏 ${p.mismatchedRows.toLocaleString()} row${p.mismatchedRows===1?'':'s'} differ from the header column count (${mainCnt}). Short rows are blocked by default and require explicit override. Long rows are always blocked because extra cells would be discarded.`);
+    list.push(`📏 ${p.mismatchedRows.toLocaleString()} row${p.mismatchedRows===1?'':'s'} differ from the header column count (${mainCnt}). Strict mode blocks every field-count mismatch (short or long); it never pads missing cells or discards extra cells.`);
   }
   const srcDup = duplicateNameList(state.headerNames);
   if(srcDup.length) list.push('⚠️ Duplicate source headers detected: ' + srcDup.map(d=>`${d.name} (cols ${d.columns.join(', ')})`).join('; ') + '. Name-based auto-mapping is disabled for ambiguous duplicates.');
   if(p.dataRecords === 0) list.push('📄 Header row only — no data rows found.');
   if(p.multiline > 0){
-    list.push(`🧵 ${p.multiline.toLocaleString()} record${p.multiline===1?'':'s'} contain embedded newlines in a quoted field (handled correctly).`);
+    list.push(`🚫 ${p.multiline.toLocaleString()} record${p.multiline===1?'':'s'} contain raw CR/LF inside a quoted field. Strict FE/DC4 treats this as unsafe; saving is blocked.`);
   } else {
     list.push('🧵 No multiline fields detected.');
   }
@@ -2653,7 +2716,8 @@ async function requireSafePreflight(mode){
   };
   if(state.mixedEol){
     lastPreflightAcknowledgement.required = true;
-    lines.push('Mixed record-separator EOL markers were detected across records. Output record separators will use the dominant separator style; parsed field values remain under validator comparison.');
+    alert('SAVE BLOCKED — MIXED EOL\n\nMixed record-separator EOL styles were detected. This strict profile does not normalize them implicitly. Normalize the source through an approved workflow and reload it.');
+    return false;
   }
   const blankHeaders = (state.headerNames || []).map((h,i)=>String(h||'').trim()==='' ? i+1 : null).filter(Boolean);
   if(blankHeaders.length){
@@ -2701,13 +2765,18 @@ let lastSavedMode = null;     // 'reorder' | 'client' | null
 let lastSavedSrcHash = null;  // SHA-256 of the original bytes at the last successful save
 let lastSavedOutHash = null;  // SHA-256 of EVERY byte written by the last successful save
 let lastSavedPlan = null;     // snapshot of the column plan (orderTarget / client map) used by that save
+let lastSavedDiskBacked = false; // true only when File System Access re-opened the actual on-disk destination
+let lastSavedHandle = null;
+let lastSavedHeaders = null;
+let savedValidationPreparing = false;
 
 function syncValidateButtons(){
-  const enable = !!lastSavedOutput;
+  const enable = !!lastSavedOutput && lastSavedDiskBacked;
+  const manualMsg = 'Blob/download fallback was used. For production assurance, open the Validator tab and select the downloaded output file from disk.';
   const reBtn = $('#btnValidateLastReorder');
   const clBtn = $('#btnValidateLastClient');
-  if(reBtn) reBtn.disabled = !(enable && lastSavedMode === 'reorder');
-  if(clBtn) clBtn.disabled = !(enable && lastSavedMode === 'client');
+  if(reBtn){ reBtn.disabled = !(enable && lastSavedMode === 'reorder'); if(!enable && lastSavedOutput) reBtn.title = manualMsg; }
+  if(clBtn){ clBtn.disabled = !(enable && lastSavedMode === 'client'); if(!enable && lastSavedOutput) clBtn.title = manualMsg; }
 }
 
 /* P1: the 1-Click "validate saved output" state is only valid for the source
@@ -2715,15 +2784,19 @@ function syncValidateButtons(){
    must invalidate it so the button can never attest a wrong original ↔ output
    pair. */
 function invalidateLastSaved(){
+  lastSavedHandle = null;
+  lastSavedHeaders = null;
   lastSavedOutput = null;
   lastSavedSrcHash = null;
   lastSavedOutHash = null;
   lastSavedMode = null;
   lastSavedPlan = null;
+  lastSavedDiskBacked = false;
   syncValidateButtons();
 }
 
 async function launchSavedValidation(){
+  if(saveOperationActive || state.parsing || savedValidationPreparing){ toast('Wait for the current operation to finish.'); return; }
   const mode = lastSavedMode;
   if(!state || !state.file || !state.detected){
     toast('⚠️ Load a FE/DC4 source file first, then save it, then validate.');
@@ -2731,6 +2804,10 @@ async function launchSavedValidation(){
   }
   if(!lastSavedOutput){
     toast('⚠️ The saved output file is not available in this session. Re-select files manually in the Validator tab.');
+    return;
+  }
+  if(!lastSavedDiskBacked){
+    toast('⛔ 1-Click validation is disabled for browser-download fallback because that would only re-read the in-memory Blob. Select the downloaded output from disk in the Validator tab.');
     return;
   }
   const mapSeed = mode === 'client' ? clMapArray() : (state.orderTarget ? state.orderTarget.slice() : null);
@@ -2742,26 +2819,39 @@ async function launchSavedValidation(){
   // used when it was saved. If the plan was edited after the save (without a new
   // save), stop — otherwise a stale output could be compared against a plan that
   // no longer matches it.
+  const currentHeaders = mode === 'client' ? cl.rows.map(r=>r.name) : mapSeed.map(i=>state.headerNames[i]);
   const planDiffers = !lastSavedPlan || lastSavedPlan.length !== mapSeed.length ||
-    lastSavedPlan.some((v,i)=> v !== mapSeed[i]);
+    lastSavedPlan.some((v,i)=> v !== mapSeed[i]) || JSON.stringify(currentHeaders) !== JSON.stringify(lastSavedHeaders);
   if(planDiffers){
     toast(mode === 'client'
       ? '⚠️ The client mapping has changed since the file was saved. Re-save the client file, then validate — or use manual mapping in the Validator tab.'
       : '⚠️ The field order has changed since the file was saved. Re-save the reordered file, then validate — or use manual mapping in the Validator tab.');
     return;
   }
-  requestAnimationFrame(()=> switchClientMode('validator'));
+  const sourceFile = state.file;
+  const handle = lastSavedHandle;
+  if(!handle){ toast('Saved destination handle unavailable. Select the output from disk in Validator.'); return; }
+  savedValidationPreparing = true;
+  const locked = Array.from(document.querySelectorAll('main, .topbar'));
+  const wasInert = locked.map(el=>el.inert);
+  locked.forEach(el=>{el.inert=true;});
+  valInvalidateResult('Reopening the saved disk file for validation…');
+  switchClientMode('validator');
   try{
+    lastSavedOutput = await handle.getFile();
     // Load both real files into the validator (source = already-loaded File).
     // autoMap=false: the mapping/identity is seeded from the save below, so the
     // generic "auto-match after both loads" behaviour must not run here.
-    await valLoadSide('src', state.file, false);
-    await valLoadSide('out', lastSavedOutput, false);
+    const loadedSource = await valLoadSide('src', sourceFile, false);
+    const loadedOutput = await valLoadSide('out', lastSavedOutput, false);
+    if(!loadedSource || !loadedOutput || validator.src !== sourceFile || validator.out !== lastSavedOutput){
+      throw new Error('Saved file pair could not be loaded consistently. Re-select the files.');
+    }
     if(!validator.srcHdr || !validator.outHdr){
       toast('⛔ Validator could not build headers for the source/output pair.');
       return;
     }
-    if(validator.mapping && mapSeed.length !== validator.outHdr.length){
+    if(mapSeed.length !== validator.outHdr.length){
       toast(`⛔ Saved mapping length (${mapSeed.length}) does not match output columns (${validator.outHdr.length}). Use manual mapping.`);
       return;
     }
@@ -2778,10 +2868,16 @@ async function launchSavedValidation(){
     valRenderMapping(3);
     toast('🧪 Ready — validating the saved file against the loaded original…');
     // Run after the validator area is switched in and rendering settles.
-    setTimeout(()=> valRunValidate(), 30);
+    await valRunValidate();
   } catch(err){
     console.error(err);
+    valInvalidateResult('Saved-output validation failed: ' + (err.message || String(err)));
+    reportOperationError('saved-validation', err, sourceFile);
     toast('❌ Could not start one-click validation: ' + (err && err.message ? err.message : 'unknown'));
+  } finally {
+    locked.forEach((el,i)=>{el.inert=wasInert[i];});
+    savedValidationPreparing = false;
+    clearBusy();
   }
 }
 
@@ -2856,36 +2952,23 @@ function createSink(onWrite){
     cancelReason(){ return pickerError; },
     async open(){
       if(fileHandle && !writable){
-        let selected = null;
-        try { selected = await fileHandle.getFile(); } catch(e){}
+        // An unreadable destination is not evidence that it is empty.
+        const selected = await fileHandle.getFile();
         if(selected && state.file && selected.name === state.file.name) throw new Error('Saving over the loaded source filename is blocked. Choose a new output filename.');
-        // H2: never truncate an existing, non-empty file without explicit consent.
+        // Strict production policy: never replace an existing non-empty file.
+        // Preserve existing evidence even when the selected file is unrelated
+        // to the source. A new empty destination is the only permitted target.
         if(selected && selected.size > 0){
-          // B-4: writing replaces the file in place (FSA has no atomic
-          // temp+rename), so an interrupted save can destroy the previous
-          // version. Before we may truncate it we stream a recoverable backup
-          // copy to Downloads so the operator can restore it if needed.
-          const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
-          const bakName = safeOutputName(selected.name, 'backup') + '.' + ts + '.bak';
-          const replace = confirm('The destination file "' + selected.name + '" already exists and will be REPLACED.\n\n' +
-            'The save writes into the existing file directly. If it is interrupted (disk full, browser closed, crash), ' +
-            'the previous file may be lost or left partially written.\n\n' +
-            'To protect it, a backup copy will be downloaded first:\n    ' + bakName + '\n\n' +
-            'Choose a NEW file name to keep the existing file untouched, or confirm to back it up and then replace it.');
-          if(!replace) throw new Error('overwrite-cancelled');
-          try {
-            const blobUrl = URL.createObjectURL(selected);
-            const a = document.createElement('a');
-            a.href = blobUrl; a.download = bakName;
-            document.body.appendChild(a); a.click(); a.remove();
-            setTimeout(()=>URL.revokeObjectURL(blobUrl), 5000);
-          } catch(e){ /* a blocked download does not cancel a consented replace */ }
+          throw new Error('existing-destination-blocked: "' + selected.name + '" already exists and is non-empty. Choose a NEW output filename; strict mode never overwrites existing data.');
         }
         writable = await fileHandle.createWritable();
         opened = true;
       }
     },
     async writeBytes(bytes){
+      if(!writable && bytesWritten + bytes.length > 512 * 1024 * 1024){
+        throw new Error('Blob output exceeds 512 MiB; use streaming disk save. Client field reuse can expand output beyond source size.');
+      }
       if(writeObserver) writeObserver(bytes);
       bytesWritten += bytes.length;
       if(writable){
@@ -2913,7 +2996,7 @@ function createSink(onWrite){
         await writable.close();
         writable = null;
         // FSA stream: capture the real on-disk file for post-save re-read.
-        try { lastSavedOutput = await fileHandle.getFile(); }
+        try { lastSavedOutput = await fileHandle.getFile(); lastSavedHandle = fileHandle; }
         catch(e){ lastSavedOutput = null; }
         // H3: post-save self-check — bytes actually on disk must equal the bytes
         // this save wrote. A mismatch means the file is incomplete/truncated.
@@ -2940,26 +3023,36 @@ function createSink(onWrite){
   };
 }
 
-/* v2.16: cheap instant structural check of the just-saved file's header. Reads
-   only the first record and verifies the header text and its column width. It is
-   skipped (returns null = non-blocking) for a multiline header or when the saved
-   file is unavailable. The full re-read validator remains authoritative. */
+/* Streaming byte and header verification. Header read failures block success;
+   the logical-record size cap also applies to very large headers. */
+async function hashFileBytes(file){
+  if(!file) throw new Error('Saved file is unavailable for byte verification.');
+  const hasher = createSha256();
+  for(let offset=0; offset<file.size; offset+=CHUNK_BYTES){
+    const end = Math.min(offset+CHUNK_BYTES, file.size);
+    const bytes = new Uint8Array(await file.slice(offset,end).arrayBuffer());
+    if(bytes.length !== end-offset) throw new Error('Saved file read was incomplete.');
+    hasher.update(bytes);
+    setBusy('Verifying saved bytes…', Math.floor(end*100/file.size)+'%');
+    await new Promise(r=>setTimeout(r,0));
+  }
+  return hasher.hexDigest();
+}
+
 async function savedHeaderCheck(file, meta, fmtKey, expectedComposed, expectedCols){
+  if(!file || !file.size) return {ok:false,note:'saved file/header is unavailable'};
+  const found = {};
+  let header = null;
   try{
-    if(/[\r\n]/.test(expectedComposed || '')) return null;      // multiline header: skip
-    if(!file || !file.size) return null;
-    const headLen = Math.min(file.size, 1 << 20);
-    const buf = new Uint8Array(await file.slice(0, headLen).arrayBuffer());
-    const text = decoderFor(decoderNameFor(meta.kind)).decode(buf);
-    let lineEnd = text.length;
-    for(let k = 0; k < text.length; k++){ const c = text[k]; if(c === '\r' || c === '\n'){ lineEnd = k; break; } }
-    const head = text.slice(0, lineEnd);
-    if(head !== expectedComposed) return { ok:false, note:'saved header text does not match the expected output header' };
-    let cols = -1;
-    try { cols = FORMATS[fmtKey].split(head).length; } catch(e){ cols = -1; }
-    if(cols !== expectedCols) return { ok:false, note:'saved header has ' + cols + ' column(s); expected ' + expectedCols };
-    return { ok:true };
-  }catch(e){ return null; }
+    await scanFile(file,meta,fmtKey,rec=>{ header=rec; throw found; });
+  }catch(err){
+    if(err!==found) return {ok:false,note:'saved header could not be read: '+(err.message || String(err))};
+  }
+  if(header!==expectedComposed) return {ok:false,note:'saved header text does not match the expected output header'};
+  try{
+    if(FORMATS[fmtKey].split(header).length!==expectedCols) return {ok:false,note:'saved header column count differs'};
+  }catch(err){ return {ok:false,note:'saved header is malformed'}; }
+  return {ok:true};
 }
 
 async function saveFileCore(){
@@ -2972,6 +3065,10 @@ async function saveFileCore(){
     toast('⛔ Save blocked — the UTF-16 source ends with an incomplete code unit. Repair or regenerate the source file, then reload it.');
     return;
   }
+  if(state.mixedEol){
+    toast('⛔ Save blocked — mixed record-separator EOL styles were detected. Relativity load files should use one consistent EOL style. Normalize the source through an approved workflow, then reload it.');
+    return;
+  }
   const unclosed = unclosedQualifierInfo();
   if(unclosed){
     toast(`⛔ Save blocked — record #${unclosed.record} ends inside an open ${unclosed.label} text qualifier. Fix the file end and reload.`);
@@ -2979,12 +3076,19 @@ async function saveFileCore(){
     return;
   }
   const mm = headerMismatchSummary();
-  if(mm && mm.longRows > 0){
-    toast(`⛔ Save blocked — ${mm.longRows.toLocaleString()} long row(s) contain extra cells that would be discarded. Repair the source file before saving.`);
+  if(mm){
+    toast(`⛔ Save blocked — ${mm.count.toLocaleString()} data row${mm.count===1?'':'s'} have a different field count than the header (${mm.mainCnt}). Strict mode does not pad or discard cells. Repair/regenerate the source before saving.`);
     return;
   }
-  if(mm && !$('#reorderMismatchCbx').checked){
-    toast(`⛔ Save blocked — ${mm.count.toLocaleString()} data row${mm.count===1?'':'s'} have a different column count than the header (${mm.mainCnt}). Tick the override above to save anyway.`);
+
+  if(state.orderTarget.some(i=>!Number.isInteger(i) || i<0 || i>=state.headerNames.length)){
+    toast('Save blocked: invalid source column index.'); return;
+  }
+  const reorderOutputHeaders = state.orderTarget.map(i=>state.headerNames[i]);
+  const reorderDupHeaders = duplicateNameList(reorderOutputHeaders);
+  if(reorderDupHeaders.length){
+    const sample = reorderDupHeaders.slice(0,3).map(d=>`"${d.name}" at output columns ${d.columns.join(', ')}`).join('; ');
+    toast(`⛔ Save blocked — duplicate output headers are not allowed in strict mode. Remove/rename the duplicate through an approved workflow. ${sample}`);
     return;
   }
 
@@ -3000,8 +3104,8 @@ async function saveFileCore(){
   const fmt = fmtInfo();
   resetSaveStats();
   const wantAudit = SHA256_SELF_TEST_OK && !!(typeof $ !== 'undefined' && $('#reorderAuditCbx') && $('#reorderAuditCbx').checked);
-  const inHasher  = wantAudit ? createSha256() : null;
-  const outHasher = wantAudit ? createSha256() : null;
+  const inHasher  = createSha256();
+  const outHasher = createSha256();
   let srcHash = null, outHash = null;
   // Attach output hashing after preflight, then open the reserved destination.
   if(outHasher) sink.setOnWrite ? sink.setOnWrite(b => outHasher.update(b)) : null;
@@ -3052,6 +3156,7 @@ async function saveFileCore(){
     try { fields = fmt.split(rawRecord); } catch(e){
       throw new Error(`Malformed FE/DC4 record during write: ${e && e.message ? e.message : String(e)}`);
     }
+    if(fields.length !== state.headerNames.length) throw new Error('Source row width changed during save.');
     const ordered = [];
     for(let k=0;k<order.length;k++){
       const origIdx = order[k];
@@ -3101,13 +3206,19 @@ async function saveFileCore(){
         await new Promise(r => setTimeout(r, 0)); // let the UI breathe
       }
     });
-    await scanFile(state.file, state.detected, state.fmtKey, onDataRow, onProgress, inHasher ? (b => inHasher.update(b)) : null);
+    const writeScan = await scanFile(state.file, state.detected, state.fmtKey, onDataRow, onProgress, inHasher ? (b => inHasher.update(b)) : null);
 
+    if(writeScan.unclosedQualifier || writeScan.utf16TruncatedTail || writeScan.eolInfo.mixed || rowCount !== state.parseInfo.dataRecords){
+      throw new Error('Source structure/count changed during save; output commit blocked.');
+    }
+    srcHash = inHasher.hexDigest();
+    if(!state.parseInfo.byteHash || srcHash !== state.parseInfo.byteHash){
+      throw new Error('Source bytes changed since analysis; output commit blocked. Reload the source.');
+    }
     await flushTrailingEol();
 
     const size = await sink.finish(downloadName);
     try {
-      srcHash  = inHasher  ? inHasher.hexDigest()  : null;
       outHash  = outHasher ? outHasher.hexDigest() : null;
     } catch(e){ console.warn('SHA-256 digest failed:', e); }
     // H3: post-save self-check surfaced to the user (stream saves only).
@@ -3125,6 +3236,12 @@ async function saveFileCore(){
       const hs = await savedHeaderCheck(lastSavedOutput, state.detected, state.fmtKey, fmt.compose(newHeader), newHeader.length);
       if(hs && hs.ok === false) headerFailNote = hs.note;
     }
+    let rereadHash = null;
+    // Re-read EVERY saved byte: a size-only check misses same-length corruption.
+    if(!sizeFail && !recCountFail && !headerFailNote){
+      rereadHash = await hashFileBytes(lastSavedOutput);
+      if(!outHash || rereadHash !== outHash) headerFailNote = 'saved byte SHA-256 differs from the bytes written';
+    }
     const selfFail = sizeFail || recCountFail || !!headerFailNote;
     let okMsg;
     if(selfFail){
@@ -3139,7 +3256,7 @@ async function saveFileCore(){
     } else {
       okMsg = size === null
         ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
-        : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
+        : `💾 Download created — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)}). For production assurance, re-select the downloaded file from disk in Validator.`;
     }
     showSaveWarnings(okMsg);
     if(wantAudit){
@@ -3148,9 +3265,11 @@ async function saveFileCore(){
           mode: 'reorder',
           downloadName,
           writtenRecords: rowCount,
-          overrideUsed: !!(typeof mm !== 'undefined' && mm && $('#reorderMismatchCbx') && $('#reorderMismatchCbx').checked),
+          overrideUsed: false,
           srcHash,
-          outHash
+          outHash,
+          saveSelfCheck: { failed:selfFail, sizeFail, recCountFail, headerFailNote, rereadHash, diskBacked:mode === 'stream',
+            bytesWritten:intg ? intg.bytesWritten : null, diskSize:intg ? intg.diskSize : null }
         });
         safeOpenAuditModal(auditReportNameFor(downloadName), rep.text, rep.status);
       }catch(e){ console.warn('Audit report not generated:', e); }
@@ -3162,19 +3281,24 @@ async function saveFileCore(){
       lastSavedOutHash = null;
       lastSavedMode = null;
       lastSavedPlan = null;
+      lastSavedDiskBacked = false;
       syncValidateButtons();
     } else {
       lastSavedSrcHash = srcHash;
       lastSavedOutHash = outHash;
       lastSavedMode = 'reorder';
+      lastSavedHeaders = newHeader.slice();
       lastSavedPlan = state.orderTarget ? state.orderTarget.slice() : null;
+      lastSavedDiskBacked = (mode === 'stream' && !!lastSavedOutput);
       syncValidateButtons();
     }
   } catch(err){
     const msg = err && err.message ? err.message : 'unknown error';
-    if(/^overwrite-cancelled/.test(msg)){
-      console.warn('Save cancelled — existing file kept.');
-      toast('Save cancelled — the existing file was kept.');
+    reportOperationError('reorder-save', err, state.file);
+    invalidateLastSaved();
+    if(/^existing-destination-blocked/.test(msg)){
+      console.warn(msg);
+      toast('⛔ Save blocked — destination already exists. Choose a NEW output filename; strict mode never overwrites a non-empty file.');
       return;
     }
     if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
@@ -3240,69 +3364,31 @@ const FIELDMAP_HEADER_SIG = /(client\s*header|clientfield|client\s*field|our\s*f
 
 function cleanCell(c){ return sanitizeScalarValue(String(c==null?'':c)).trim(); }
 
-function parsePastedClientHeaders(text){
+function parsePastedClientHeaders(text, requirePairs = false){
   if(!text || !String(text).trim()) return [];
-  // Preserve leading/trailing delimiter cells. Trimming the whole line first
-  // destroys an intentionally blank first Excel column (for example, "\tCLIENT_FIELD").
-  const src = String(text).replace(/^\uFEFF/,'');
-  const rawLines = src.split(/\r\n|\r|\n/).filter(l=>l.trim()!=='');
-
-  const tabbed = rawLines.some(l => l.includes('\t'));
-  const piped = !tabbed && rawLines.some(l => l.includes('|'));
-  const commaed = !tabbed && !piped && rawLines.length === 1 && rawLines[0].includes(',');
-
-  // Split into cells while PRESERVING interior blanks. A 2-column Excel map
-  // may intentionally have an empty left cell ("no our-field") — filtering
-  // those out earlier collapsed column positions and linked the wrong cells.
-  // Only TRAILING empty cells (Excel rectangular-range padding) are trimmed.
-  const trimTrailingBlanks = (cells) => {
-    while(cells.length && cells[cells.length-1] === '') cells.pop();
-    return cells;
-  };
-  const lineToCells = (line) => {
-    if(tabbed) return trimTrailingBlanks(line.split('\t').map(cleanCell));
-    if(piped) return trimTrailingBlanks(line.split('|').map(cleanCell));
-    if(commaed) return trimTrailingBlanks(delimitedSplit(line, ',').map(cleanCell));
-    return [cleanCell(line)];
-  };
-
-  const rows = rawLines.map(lineToCells).filter(r => r.length > 0);
-  if(rows.length === 0) return [];
-
-  // Vertical list: every line is a single cell → straight header list.
-  const allSingle = rows.every(r => r.length === 1);
-  if(allSingle){
-    return rows.map(r => ({ name:r[0], hint:null, mapped:null }));
+  const rawLines = String(text).replace(/^\uFEFF/,'').split(/\r\n|\r|\n/).filter(l=>l.trim()!=='');
+  const tabbed = rawLines.some(l=>l.includes('\t'));
+  const piped = !tabbed && rawLines.some(l=>l.includes('|'));
+  const commaed = !tabbed && !piped && rawLines.length===1 && rawLines[0].includes(',');
+  const rows = rawLines.map(line=>tabbed ? line.split('\t').map(cleanCell) :
+    piped ? line.split('|').map(cleanCell) : commaed ? delimitedSplit(line, ',').map(cleanCell) : [cleanCell(line)]);
+  if(!tabbed && !piped && !commaed) return rows.map(r=>({name:r[0],hint:null,mapped:null}));
+  if(rows.length===1 && !requirePairs){
+    const cells=rows[0];
+    while(cells.length && cells[cells.length-1]==='') cells.pop();
+    return cells.map(name=>({name,hint:null,mapped:null}));
   }
-
-  // Single horizontal row (one line, many cells) → column headers.
-  if(rawLines.length === 1){
-    return rows[0].map(c => ({ name:c, hint:null, mapped:null }));
-  }
-
-  // Multi-line 2-column (or more) fieldmap: left = OUR name, right = client header.
-  // A signature header row (e.g. "Our Fields / Client Headers") is skipped here.
-  const LOOKS_2COL = rows.every(r => r.length >= 2);
-  if(LOOKS_2COL){
-    let start = 0;
-    const headerHits = rows[0].filter(c => FIELDMAP_HEADER_SIG.test(String(c).trim())).length;
-    if(rows[0].length >= 2 && headerHits >= 2) start = 1;
-    if(start >= rows.length) return [];
-    const out = [];
-    rows.slice(start).forEach(r => {
-      // Client header = the right-most non-empty cell.
-      let headerIdx = r.length - 1;
-      while(headerIdx > 0 && r[headerIdx] === '') headerIdx--;
-      const clientName = r[headerIdx];
-      const ourHint = headerIdx > 0 ? r[headerIdx - 1] : null;
-      if(clientName) out.push({ name:clientName, hint:(ourHint || null), mapped:null });
-    });
-    return out;
-  }
-
-  // Mixed lines with cells but already single-cell style in most rows:
-  // treat first cell of each row as the header (tolerant).
-  return rows.map(r => ({ name:r[0], hint:r[1] || null, mapped:null }));
+  rows.forEach((row,i)=>{
+    // Excel may include blank padding beyond the two requested columns.
+    while(row.length>2 && row[row.length-1]==='') row.pop();
+    if(row.length!==2) throw new Error('Pasted map row '+(i+1)+' must contain exactly two columns: original and output.');
+    if(!row[1]) throw new Error('Pasted map row '+(i+1)+' has a blank output header.');
+  });
+  const first=rows[0].map(s=>s.toLowerCase());
+  const titleLeft=['our fields','original fields','source fields','original header','source header'];
+  const titleRight=['client headers','output headers','delivery headers','output header','client header'];
+  const start=titleLeft.includes(first[0]) && titleRight.includes(first[1]) ? 1 : 0;
+  return rows.slice(start).map(r=>({name:r[1],hint:r[0],mapped:null}));
 }
 
 /* Row mapping helpers ----------------------------------------- */
@@ -3543,13 +3629,20 @@ function renderClPreview(){
     tr.appendChild(td);
     clPreviewTbody.appendChild(tr);
   } else {
-    rowsN.forEach((rec,ri)=>{
-      let fields = [];
-      try { fields = fmt.split(rec); } catch(e){ fields = []; }
+    rowsN.forEach((entry,ri)=>{
+      const rec = (typeof entry === 'string') ? entry : entry.record;
+      const rowNo = (entry && typeof entry === 'object' && entry.row) ? entry.row : (ri+1);
       const tr = document.createElement('tr');
       const td0 = document.createElement('td');
-      td0.textContent=String(ri+1); td0.style.fontWeight='600'; td0.style.color='#526079';
+      td0.textContent=String(rowNo); td0.style.fontWeight='600'; td0.style.color='#526079';
       tr.appendChild(td0);
+      if(entry && typeof entry === 'object' && entry.omitted){
+        const td = document.createElement('td'); td.colSpan = headerNames.length; td.className='cl-preview-empty';
+        td.textContent = `Preview omitted for this large record (${fmtBytesLabel(entry.units * 2)} max in-memory estimate). The record is still fully scanned and validated.`;
+        tr.appendChild(td); clPreviewTbody.appendChild(tr); return;
+      }
+      let fields = [];
+      try { fields = fmt.split(rec); } catch(e){ fields = []; }
       mapArr.forEach(srcIdx=>{
         const td = document.createElement('td');
         const v = srcIdx !== null && srcIdx < fields.length ? sanitizeScalarValue(fields[srcIdx]) : '';
@@ -3575,6 +3668,10 @@ async function saveClientFileCore(){
     toast('⛔ Save blocked — the UTF-16 source ends with an incomplete code unit. Repair or regenerate the source file, then reload it.');
     return;
   }
+  if(state.mixedEol){
+    toast('⛔ Save blocked — mixed record-separator EOL styles were detected. Relativity load files should use one consistent EOL style. Normalize the source through an approved workflow, then reload it.');
+    return;
+  }
   const unclosed = unclosedQualifierInfo();
   if(unclosed){
     toast(`⛔ Save blocked — record #${unclosed.record} ends inside an open ${unclosed.label} text qualifier. Fix the file end and reload.`);
@@ -3582,22 +3679,24 @@ async function saveClientFileCore(){
     return;
   }
   const mm = headerMismatchSummary();
-  if(mm && mm.longRows > 0){
-    toast(`⛔ Save blocked — ${mm.longRows.toLocaleString()} long row(s) contain extra cells that would be discarded. Repair the source file before saving.`);
-    return;
-  }
-  if(mm && !$('#clMismatchCbx').checked){
-    toast(`⛔ Save blocked — ${mm.count.toLocaleString()} data row${mm.count===1?'':'s'} have a different column count than the header (${mm.mainCnt}). Tick the override above to save anyway.`);
+  if(mm){
+    toast(`⛔ Save blocked — ${mm.count.toLocaleString()} source data row${mm.count===1?'':'s'} have a different field count than the header (${mm.mainCnt}). Strict mode does not pad or discard cells. Repair/regenerate the source before saving.`);
     return;
   }
   const rows = cl.rows.map((r,i) => ({ i, name:r.name, mapped:r.mapped, blank:!!r.blank }));
   const unmappedCount = rows.filter(r=>r.mapped===null).length;
-  if(unmappedCount > 0 && !($('#clUnmappedCbx') && $('#clUnmappedCbx').checked)){
-    toast(`⛔ Save blocked — ${unmappedCount} client header${unmappedCount===1?'':'s'} not yet mapped. Their output columns would be delivered EMPTY. Map ${unmappedCount===1?'it':'them'} on the left, or tick the override above to save with explicit blank values.`);
+  if(unmappedCount > 0){
+    toast(`⛔ Save blocked — ${unmappedCount} client header${unmappedCount===1?' is':'s are'} unmapped. Strict mode requires an explicit source mapping for every delivery column.`);
     updateSaveGuardUi();
     return;
   }
 
+  const clientDupHeaders = duplicateNameList(rows.map(r=>r.name));
+  if(clientDupHeaders.length){
+    const sample = clientDupHeaders.slice(0,3).map(d=>`"${d.name}" at columns ${d.columns.join(', ')}`).join('; ');
+    toast(`⛔ Save blocked — duplicate client output headers are not allowed in strict mode. ${sample}`);
+    return;
+  }
   const unsafeHeaders = rows.map((r,i)=>({i,name:r.name,reason:unsafeClientHeader(state.fmtKey,r.name)})).filter(x=>x.reason);
   if(unsafeHeaders.length){
     const sample = unsafeHeaders.slice(0,3).map(x=>`#${x.i+1} "${x.name}" ${x.reason}`).join('; ');
@@ -3606,7 +3705,7 @@ async function saveClientFileCore(){
   }
   // LR-1: defensive guard — a mapping pointing outside the source schema would
   // otherwise silently write an EMPTY column for every row.
-  const oobMapped = rows.filter(r => r.mapped !== null && (r.mapped < 0 || r.mapped >= state.headerNames.length));
+  const oobMapped = rows.filter(r => r.mapped !== null && (!Number.isInteger(r.mapped) || r.mapped < 0 || r.mapped >= state.headerNames.length));
   if(oobMapped.length){
     const sample = oobMapped.slice(0,3).map(r=>`#${r.i+1} "${r.name}"`).join('; ');
     toast(`⛔ Save blocked — ${oobMapped.length} client header${oobMapped.length===1?'':'s'} map to an out-of-range source column (source has ${state.headerNames.length} fields). Unmap and remap those rows. ${sample}`);
@@ -3626,8 +3725,8 @@ async function saveClientFileCore(){
   const fmt = fmtInfo();
   resetSaveStats();
   const wantAudit = SHA256_SELF_TEST_OK && !!(typeof $ !== 'undefined' && $('#clAuditCbx') && $('#clAuditCbx').checked);
-  const inHasher  = wantAudit ? createSha256() : null;
-  const outHasher = wantAudit ? createSha256() : null;
+  const inHasher  = createSha256();
+  const outHasher = createSha256();
   let srcHash = null, outHash = null;
   if(outHasher) sink.setOnWrite(b => outHasher.update(b));
   try {
@@ -3662,6 +3761,7 @@ async function saveClientFileCore(){
     try { fields = fmt.split(rawRecord); } catch(e){
       throw new Error(`Malformed FE/DC4 record during write: ${e && e.message ? e.message : String(e)}`);
     }
+    if(fields.length !== state.headerNames.length) throw new Error('Source row width changed during save.');
     const vals = mapArr.map(srcIdx => (srcIdx !== null && srcIdx < fields.length) ? sanitizeScalarValue(fields[srcIdx]) : '');
     return fmt.compose(vals);
   };
@@ -3683,14 +3783,20 @@ async function saveClientFileCore(){
       await writeLine(composeRow(rec));
       if(rowCount % 10000 === 0) await new Promise(r=>setTimeout(r,0));
     });
-    await scanFile(state.file, state.detected, state.fmtKey, onDataRow, ({pct}) => {
+    const writeScan = await scanFile(state.file, state.detected, state.fmtKey, onDataRow, ({pct}) => {
       if(pct !== null && pct !== lastPct){ lastPct = pct; setBusy('Writing client file…', `${pct}% · ${rowCount.toLocaleString()} records written`); }
     }, inHasher ? (b => inHasher.update(b)) : null);
 
+    if(writeScan.unclosedQualifier || writeScan.utf16TruncatedTail || writeScan.eolInfo.mixed || rowCount !== state.parseInfo.dataRecords){
+      throw new Error('Source structure/count changed during save; output commit blocked.');
+    }
+    srcHash = inHasher.hexDigest();
+    if(!state.parseInfo.byteHash || srcHash !== state.parseInfo.byteHash){
+      throw new Error('Source bytes changed since analysis; output commit blocked. Reload the source.');
+    }
     await flushTrailingEol();
     const size = await sink.finish(downloadName);
     try {
-      srcHash  = inHasher  ? inHasher.hexDigest()  : null;
       outHash  = outHasher ? outHasher.hexDigest() : null;
     } catch(e){ console.warn('SHA-256 digest failed:', e); }
     // H3: post-save self-check surfaced to the user (stream saves only).
@@ -3708,6 +3814,12 @@ async function saveClientFileCore(){
       const hs = await savedHeaderCheck(lastSavedOutput, state.detected, state.fmtKey, fmt.compose(newHeader), newHeader.length);
       if(hs && hs.ok === false) headerFailNote = hs.note;
     }
+    let rereadHash = null;
+    // Re-read EVERY saved byte: a size-only check misses same-length corruption.
+    if(!sizeFail && !recCountFail && !headerFailNote){
+      rereadHash = await hashFileBytes(lastSavedOutput);
+      if(!outHash || rereadHash !== outHash) headerFailNote = 'saved byte SHA-256 differs from the bytes written';
+    }
     const selfFail = sizeFail || recCountFail || !!headerFailNote;
     let okMsg;
     if(selfFail){
@@ -3722,7 +3834,7 @@ async function saveClientFileCore(){
     } else {
       okMsg = size === null
         ? `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, streamed to disk)`
-        : `💾 Saved — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)})`;
+        : `💾 Download created — ${downloadName} (${FORMATS[state.fmtKey].label}, ${fmtBytesLabel(size)}). For production assurance, re-select the downloaded file from disk in Validator.`;
     }
     showSaveWarnings(okMsg);
     if(wantAudit){
@@ -3731,9 +3843,11 @@ async function saveClientFileCore(){
           mode: 'client',
           downloadName,
           writtenRecords: rowCount,
-          overrideUsed: !!(typeof mm !== 'undefined' && mm && $('#clMismatchCbx') && $('#clMismatchCbx').checked),
+          overrideUsed: false,
           srcHash,
-          outHash
+          outHash,
+          saveSelfCheck: { failed:selfFail, sizeFail, recCountFail, headerFailNote, rereadHash, diskBacked:mode === 'stream',
+            bytesWritten:intg ? intg.bytesWritten : null, diskSize:intg ? intg.diskSize : null }
         });
         safeOpenAuditModal(auditReportNameFor(downloadName), rep.text, rep.status);
       }catch(e){ console.warn('Audit report not generated:', e); }
@@ -3745,19 +3859,24 @@ async function saveClientFileCore(){
       lastSavedOutHash = null;
       lastSavedMode = null;
       lastSavedPlan = null;
+      lastSavedDiskBacked = false;
       syncValidateButtons();
     } else {
       lastSavedSrcHash = srcHash;
       lastSavedOutHash = outHash;
       lastSavedMode = 'client';
+      lastSavedHeaders = newHeader.slice();
       lastSavedPlan = clMapArray().slice();
+      lastSavedDiskBacked = (mode === 'stream' && !!lastSavedOutput);
       syncValidateButtons();
     }
   } catch(err){
     const msg = err && err.message ? err.message : 'unknown error';
-    if(/^overwrite-cancelled/.test(msg)){
-      console.warn('Save cancelled — existing file kept.');
-      toast('Save cancelled — the existing file was kept.');
+    reportOperationError('client-save', err, state.file);
+    invalidateLastSaved();
+    if(/^existing-destination-blocked/.test(msg)){
+      console.warn(msg);
+      toast('⛔ Save blocked — destination already exists. Choose a NEW output filename; strict mode never overwrites a non-empty file.');
       return;
     }
     if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
@@ -3772,7 +3891,10 @@ async function saveClientFileCore(){
 /* Client-mode events ------------------------------------------ */
 function bindClientMode(){
   btnClParsePaste.addEventListener('click', ()=>{
-    const out = parsePastedClientHeaders(clPasteText.value);
+    cl.rows = []; cl.sel = null; clRenderAll();
+    let out;
+    try { out = parsePastedClientHeaders(clPasteText.value); }
+    catch(err){ reportOperationError('client-map', err); toast('Client map blocked: ' + err.message); return; }
     if(out.length === 0){
       toast('⚠️ No headers recognized — paste tab/comma/pipe-separated values or one header per line.');
       return;
@@ -3883,16 +4005,24 @@ function switchClientMode(mode){
 }
 
 async function runSaveLocked(fn){
-  if(coreSelfTestOk === false){ toast('Startup self-test failed — saving is DISABLED for data safety. Reload the page.'); return; }
-  if(saveOperationActive){ toast('A save is already in progress.'); return; }
+  if(coreSelfTestOk !== true || !SHA256_SELF_TEST_OK){ toast('Startup self-test failed — saving is DISABLED for data safety. Reload the page.'); return; }
+  if(saveOperationActive || savedValidationPreparing){ toast('A save or saved-output validation is already in progress.'); return; }
+  if(state.parsing){ toast('Wait for source analysis to finish.'); return; }
   saveOperationActive = true;
+  invalidateLastSaved();
+  // Prevent mapping/source edits, including keyboard activation, across awaits.
+  const lockedElements = Array.from(document.querySelectorAll('main, .topbar'));
+  const inertBefore = lockedElements.map(el => el.inert);
+  lockedElements.forEach(el => { el.inert = true; });
   try { return await fn(); }
   catch(err){
     // H1: never let a save error disappear silently (e.g. picker/open failures
     // that occur before the per-save try/catch takes over).
     console.error(err);
     toast('❌ Save failed: ' + (err && err.message ? err.message : 'unknown error'));
+    reportOperationError('save-preflight', err, state.file);
   } finally {
+    lockedElements.forEach((el,i) => { el.inert = inertBefore[i]; });
     saveOperationActive = false;
   }
 }
@@ -3945,34 +4075,68 @@ let valReportText = '';
 let saveOperationActive = false;
 let validationOperationToken = 0;
 const validatorLoadToken = { src:0, out:0 };
-/* Source header NAME the user explicitly chose in the identity dropdown.
-   null = no explicit choice yet (auto-pick may run). Stored by name so a new
-   source file with shifted column indexes can't silently retarget the pick. */
+/* Explicit identity choice as {name,index}. Keeping the original index prevents
+   duplicate-name headers from silently snapping to the first occurrence. A new
+   source load clears this object before parsing starts. */
 let identityUserChoice = null;
 
-function valClearMappingSummary(){
+function valInvalidateResult(note){
+  // Any file/mapping change invalidates the previous PASS/FAIL report immediately.
+  validationOperationToken++;
+  valReportText = '';
+  if(val.statusBadge){ val.statusBadge.textContent = 'NOT VALIDATED'; val.statusBadge.className = 'badge gray'; }
+  if(val.reportPre) val.reportPre.textContent = note || 'Files or mapping changed — validation must be run again.';
+  if(val.sumBox){ val.sumBox.classList.add('hidden'); val.sumBox.innerHTML = ''; }
+  if(val.dlBtn) val.dlBtn.disabled = true;
+}
+
+function valInvalidateSide(kind, pendingName){
+  if(kind === 'src'){
+    validator.src = null; validator.srcMeta = null; validator.srcFmt = null;
+    validator.srcHdr = null; validator.srcInfo = null; validator.srcRecords = 0;
+    identityUserChoice = null;
+    if(val.srcZone) val.srcZone.classList.remove('has-file');
+    if(val.srcTitle) val.srcTitle.textContent = pendingName ? ('Analyzing: ' + pendingName) : 'Drop Original File';
+    if(val.srcTag) val.srcTag.textContent = '';
+    if(typeof valRefreshIdentityOptions === 'function') valRefreshIdentityOptions();
+  } else {
+    validator.out = null; validator.outMeta = null; validator.outFmt = null;
+    validator.outHdr = null; validator.outInfo = null; validator.outRecords = 0;
+    if(val.outZone) val.outZone.classList.remove('has-file');
+    if(val.outTitle) val.outTitle.textContent = pendingName ? ('Analyzing: ' + pendingName) : 'Drop Saved Output File';
+    if(val.outTag) val.outTag.textContent = '';
+  }
+  valClearMappingSummary('File selection changed — previous validation result is invalid. Load valid files and run Validate Files again.');
+}
+
+function valClearMappingSummary(note){
   validator.mapping = null;
   validator.mappingSource = 'none';
   validator.expectedBlank = new Set();
   val.mappingSum.classList.add('hidden');
   val.mappingSum.textContent = '';
   val.mapPreview.textContent = '';
+  valInvalidateResult(note || 'Column mapping changed — validation must be run again.');
 }
 
 async function valLoadSide(kind, file, autoMap){
   if(!file) return;
   if(autoMap === undefined) autoMap = true;
   const loadToken = ++validatorLoadToken[kind];
+  // v2.18.1 HIGH fix: remove the old side and old PASS before parsing begins.
+  valInvalidateSide(kind, file.name);
   setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', file.name);
   try{
     const meta = await sniffMeta(file);
     const fmtKey = detectFormat(meta.sampleText);
     if(!['utf-8','utf-16le','utf-16be'].includes(meta.kind)) throw new Error('Blocked encoding. Only UTF-8, UTF-8 BOM, UTF-16 LE/BE are allowed.');
-    if(fmtKey !== 'fe') throw new Error('Blocked format. Validator accepts FE/DC4 DAT only.');
+    if(fmtKey === 'legacy-fe') throw new Error('Blocked ambiguous/legacy FE dialect: no U+0014/DC4 column separators between multiple þ-qualified fields.');
+    if(fmtKey !== 'fe') throw new Error('Blocked format. Validator accepts strict FE/DC4 DAT only.');
     const parsed = await buildFileIndex(file, meta, fmtKey, ({pct})=>{
       if(pct !== null) setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', `${file.name} ${pct}%`);
     });
-    if(!parsed) throw new Error('No parseable header (first row is treated as the header).');
+    if(!parsed) throw new Error('No parseable strict FE/DC4 header.');
+    if(parsed.leadingBlankRecords > 0) throw new Error(`Blocked structure: ${parsed.leadingBlankRecords} blank physical line${parsed.leadingBlankRecords===1?'':'s'} before the header.`);
     if(parsed.parseErrors) throw new Error(`Malformed FE/DC4 record(s): ${parsed.parseErrors}; first data record ${parsed.parseErrorFirst}: ${parsed.parseErrorMessage || 'parse error'}`);
     if(loadToken !== validatorLoadToken[kind]) return;
     if(kind === 'src'){
@@ -3997,8 +4161,16 @@ async function valLoadSide(kind, file, autoMap){
       valAutoMap();
     }
     toast(`${kind==='src'?'Original':'Output'} loaded — ${file.name}`);
+    return true;
   } catch(err){
     console.error(err);
+    // The old side was already invalidated; make the empty state explicit.
+    if(loadToken === validatorLoadToken[kind]){
+      reportOperationError('validator-load-'+kind, err, file);
+      if(kind === 'src' && val.srcTitle) val.srcTitle.textContent = 'No Original loaded — select a valid file';
+      if(kind === 'out' && val.outTitle) val.outTitle.textContent = 'No Output loaded — select a valid file';
+      valInvalidateResult('Load failed — no validation result is valid for this side.');
+    }
     toast('❌ Could not parse ' + file.name + ' — ' + (err && err.message ? err.message : 'error'));
   } finally { clearBusy(); }
 }
@@ -4066,6 +4238,7 @@ function valBuildMapFromPairs(pairs){
     map.push(si);
   });
   validator.mapping = map;
+  valInvalidateResult('Column mapping changed — validation must be run again.');
   return true;
 }
 
@@ -4100,6 +4273,7 @@ function valAutoMap(){
   });
   validator.mapping = mapping;
   validator.mappingSource = 'auto';
+  valInvalidateResult('Auto-mapped columns changed — validation must be run again.');
   valRenderMapping(3);
   const parts = [];
   if(n[1]) parts.push('T1 exact ' + n[1]);
@@ -4116,14 +4290,14 @@ function valAutoMap(){
 
 /* B-4 identity picker. If the user EXPLICITLY chose an identity in the dropdown
    (identityUserChoice is set) that pick always wins — it is restored by header
-   NAME so column indexes shifting between files cannot silently retarget it.
+   its original index+name pair so duplicate names cannot silently retarget it.
    Auto-pick runs only when there is no explicit choice: it prefers a Control#/
    DocID-style source column that is actually mapped (fallback: first linked). */
 function valSelectMappedIdentity(){
   const identitySel = $('#valIdentityField');
   if(!identitySel || !validator.mapping) return;
   if(identityUserChoice !== null){
-    valRefreshIdentityOptions();            // restores by name; clears stale names
+    valRefreshIdentityOptions();            // restores exact index+name; clears stale choice
     if(identityUserChoice !== null) return; // the explicit pick is still applicable
   }
   identitySel.value = '';
@@ -4141,13 +4315,16 @@ function valSelectMappedIdentity(){
 function valParsePastedMap(){
   if(!validator.src || !validator.out){ toast('Load both files first (original + output).'); return; }
   const text = val.mapText.value;
+  valClearMappingSummary('Applying a new pasted map — previous result invalidated.');
   if(!text || !String(text).trim()){ toast('Paste a 2-column map first.'); return; }
   // Reuse the existing fieldmap parser: result rows carry {name: picked-name, hint: left hint}.
-  const parsed = parsePastedClientHeaders(text);
+  let parsed;
+  try { parsed = parsePastedClientHeaders(text, true); }
+  catch(err){ reportOperationError('validator-map', err); toast('Pasted map blocked: ' + err.message); return; }
   // Interpret: hint (left) = original name; name (right) = output or delivery name.
   const pairs = [];
   parsed.forEach(r=>{
-    const srcN = r.hint || r.name;   // 2-col map: left col = our(orig)
+    const srcN = r.hint === null ? r.name : r.hint; // Explicit empty source remains unresolved.
     const outN = r.name;
     pairs.push({ src: srcN, out: outN });
   });
@@ -4186,7 +4363,11 @@ function valRenderMapping(mode){
       unresolved.forEach(oi=>{
         const lab=document.createElement('label'); lab.style.cssText='display:block;margin-top:7px;cursor:pointer';
         const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=validator.expectedBlank.has(oi); cb.style.marginRight='7px';
-        cb.addEventListener('change',()=>{ if(cb.checked) validator.expectedBlank.add(oi); else validator.expectedBlank.delete(oi); valRenderMapping(mode); });
+        cb.addEventListener('change',()=>{
+          if(cb.checked) validator.expectedBlank.add(oi); else validator.expectedBlank.delete(oi);
+          valInvalidateResult('Expected-Blank approvals changed — validation must be run again.');
+          valRenderMapping(mode);
+        });
         lab.appendChild(cb); lab.appendChild(document.createTextNode(`Expected Blank: out[${oi+1}] ${validator.outHdr[oi]||'(empty header)'}`));
         box.appendChild(lab);
       });
@@ -4195,7 +4376,11 @@ function valRenderMapping(mode){
 }
 
 /* ===== Validator comparison engine ===== */
-function valEscapeForReport(s){ return String(s == null ? '' : s).replace(/\r/g,'\\r').replace(/\n/g,'\\n'); }
+function valEscapeForReport(s){
+  const text = String(s == null ? '' : s);
+  const escaped = text.slice(0,2048).replace(/[\u0000-\u001f\u007f]/g,ch=>'\\u'+ch.charCodeAt(0).toString(16).padStart(4,'0'));
+  return escaped + (text.length>2048 ? '… [truncated; '+text.length+' UTF-16 units total]' : '');
+}
 
 /* True when `out` equals `src` OR differs only by an intentional data
    cleansing the tool performs (surrogate hygiene → U+FFFD, CP1252
@@ -4211,9 +4396,9 @@ const CP1252_TO_UNICODE = (()=>{
 })();
 
 function valExpectedTransformation(srcRaw, outCell){
-  // Destructive cleansing is never auto-approved. Only EOL representation may normalize.
-  const norm = (v)=> String(v == null ? '' : v).replace(/\r\n|\r|\n/g,'\n');
-  if(norm(srcRaw) === norm(outCell) && srcRaw !== outCell) return { kind:'EOL normalization' };
+  // Strict production profile: parsed-cell differences are never auto-approved.
+  // Raw CR/LF inside FE fields is rejected during load, and mixed record EOL is
+  // a structural FAIL, so a value mismatch must remain a mismatch.
   return null;
 }
 
@@ -4236,81 +4421,83 @@ function identityShape(id){
    The FIRST record from each side (the header) is consumed before data pairing
    begins. When one side hits EOF the remaining records of the other side are
    reported as orphan rows so a missing/dropped row is caught. */
-function valStreamPair(desc, onPair){
-  return new Promise((resolve,reject)=>{
-    function mkBox(){ return { val:null, populated:false, consumers:[], producers:[] }; }
-    const boxA = mkBox(), boxB = mkBox();
-    let pairErr = null;
-
-    async function put(side, rec){
-      const b = side === 'a' ? boxA : boxB;
-      while(b.populated) await new Promise(r=>b.producers.push(r));
-      b.val = rec; b.populated = true;
-      const c = b.consumers.shift();
-      if(c) c();
+async function valStreamPair(desc, onPair){
+  function mkBox(){ return { val:null, populated:false, consumers:[], producers:[] }; }
+  const boxes = { a:mkBox(), b:mkBox() };
+  let stopped = false;
+  let pairErr = null;
+  function stop(err){
+    if(err && !pairErr) pairErr = err;
+    stopped = true;
+    for(const box of Object.values(boxes)){
+      box.consumers.splice(0).forEach(wake=>wake());
+      box.producers.splice(0).forEach(wake=>wake());
     }
-    async function get(side){
-      const b = side === 'a' ? boxA : boxB;
-      while(!b.populated) await new Promise(r=>b.consumers.push(r));
-      const r = b.val; b.populated = false;
-      const p = b.producers.shift();
-      if(p) p();
-      return r; // null is the EOF marker and is never produced again by that side
-    }
-    async function runSide(side, cfg){
-      // Align with buildFileIndex's header rule: skip leading blank physical
-      // lines, then treat the first non-blank record as the header (it is emitted
-      // normally and consumed as the header below). This keeps row pairing correct
-      // when a file starts with blank line(s).
-      let headerPending = true;
-      try{ await scanFile(cfg.file, cfg.meta, cfg.fmt, async rec => {
-          if(headerPending){
-            if(isBlankPhysicalRecord(rec)) return;  // leading blank line
-            headerPending = false;                   // first non-blank record = header
-          }
-          await put(side, rec);
-        }, undefined,
-        cfg.hasher ? (b => cfg.hasher.update(b)) : null); }
-      catch(e){ pairErr = e; }
-      await put(side, null);
-    }
-
-    const pA = runSide('a', desc.a);
-    const pB = runSide('b', desc.b);
-
-    (async () => {
-      // buffer/consume declaration hoisting: header (first) record of each file
-      await get('a');
-      await get('b');
-      let aEnd = false, bEnd = false, row = 0;
-      for(;;){
-        let recA = null, recB = null;
-        if(!aEnd){ const v = await get('a'); if(v === null) aEnd = true; else recA = v; }
-        if(!bEnd){ const v = await get('b'); if(v === null) bEnd = true; else recB = v; }
-        if(pairErr) throw pairErr;
-        if(aEnd && bEnd){ await onPair(null, null, null); return; }
-        // exactly one side may have reached EOF: that iteration reports the
-        // other side's current record as orphan (missing counterpart).
-        if(aEnd && !bEnd){ await onPair(null, recB, row); continue; }
-        if(!aEnd && bEnd){ await onPair(recA, null, row); continue; }
-        await onPair(recA, recB, row);
-        row++;
+  }
+  function check(){ if(stopped) throw pairErr || new Error('Pair scan stopped.'); }
+  async function put(side, rec){
+    const box = boxes[side];
+    while(box.populated){ check(); await new Promise(r=>box.producers.push(r)); }
+    check();
+    box.val=rec; box.populated=true;
+    const wake=box.consumers.shift(); if(wake) wake();
+  }
+  async function get(side){
+    const box=boxes[side];
+    while(!box.populated){ check(); await new Promise(r=>box.consumers.push(r)); }
+    check();
+    const rec=box.val; box.val=null; box.populated=false;
+    const wake=box.producers.shift(); if(wake) wake();
+    return rec;
+  }
+  async function runSide(side,cfg){
+    try{
+      const result=await scanFile(cfg.file,cfg.meta,cfg.fmt,rec=>put(side,rec),undefined,
+        cfg.hasher ? bytes=>cfg.hasher.update(bytes) : null);
+      if(result.unclosedQualifier || result.utf16TruncatedTail) throw new Error('Incomplete record or UTF-16 unit during validation.');
+      await put(side,null);
+    }catch(err){ stop(err); }
+  }
+  const producers=[runSide('a',desc.a),runSide('b',desc.b)];
+  try{
+    for(const side of ['a','b']){
+      const header=await get(side);
+      if(header===null) throw new Error('Missing header during validation.');
+      const parsed=FORMATS[desc[side].fmt].split(header);
+      if(desc[side].headers && JSON.stringify(parsed)!==JSON.stringify(desc[side].headers)){
+        throw new Error('Header changed since file analysis. Reload the files.');
       }
-    })().then(resolve, reject);
-  });
+    }
+    let aEnd=false,bEnd=false,row=0;
+    for(;;){
+      const recA=aEnd?null:await get('a');
+      const recB=bEnd?null:await get('b');
+      if(recA===null) aEnd=true;
+      if(recB===null) bEnd=true;
+      if(aEnd && bEnd){ await onPair(null,null,null); break; }
+      await onPair(recA,recB,row++);
+    }
+  }finally{
+    stop();
+    await Promise.all(producers);
+  }
 }
 
-function valSplitRow(fmtKey, raw){ try{ return FORMATS[fmtKey].split(raw === undefined || raw === null ? '' : String(raw)); }catch(e){ return []; } }
+function valSplitRow(fmtKey, raw){ return FORMATS[fmtKey].split(String(raw)); }
 
 async function valRunValidateCore(validationToken){
   const identitySelect = $('#valIdentityField');
   const identityIdx = identitySelect && identitySelect.value !== '' ? Number(identitySelect.value) : -1;
   if(identityIdx < 0) return toast('Select the approved record identity field before validation.');
-  if(!validator.mapping.some(si => si === identityIdx)) return toast('Identity field must be linked to an output column.');
   if(!validator.src || !validator.out){ toast('Both original and output files are required.'); return; }
   if(!validator.mapping || validator.mapping.length !== validator.outHdr.length){
     toast('Build a column mapping first — ✨ Auto-Match or paste the field map.');
     return;
+  }
+  if(!Number.isInteger(identityIdx) || identityIdx >= validator.srcHdr.length ||
+     !validator.mapping.some(si => si === identityIdx)) return toast('Identity field must be linked to a valid source column.');
+  if(validator.mapping.some(si => si !== null && (!Number.isInteger(si) || si < 0 || si >= validator.srcHdr.length))){
+    return toast('Validation blocked: invalid source column index.');
   }
   const unresolved = [];
   validator.mapping.forEach((si,oi)=>{ if(si===null && !validator.expectedBlank.has(oi)) unresolved.push(oi); });
@@ -4322,6 +4509,9 @@ async function valRunValidateCore(validationToken){
   const invalidExpected = [...validator.expectedBlank].filter(oi=>validator.mapping[oi]!==null);
   if(invalidExpected.length){ invalidExpected.forEach(oi=>validator.expectedBlank.delete(oi)); }
   const fatalInputs = [];
+  if(validator.srcHdr.some(h=>!String(h).trim())) fatalInputs.push('original has a blank header');
+  if(validator.outHdr.some(h=>!String(h).trim())) fatalInputs.push('output has a blank header');
+  if(duplicateNameList(validator.outHdr).length) fatalInputs.push('output has duplicate headers');
   if(validator.srcInfo && validator.srcInfo.unclosedQualifier) fatalInputs.push('original has an unclosed qualifier');
   if(validator.outInfo && validator.outInfo.unclosedQualifier) fatalInputs.push('output has an unclosed qualifier');
   if(validator.srcInfo && validator.srcInfo.utf16TruncatedTail) fatalInputs.push('original has a truncated UTF-16 tail');
@@ -4348,7 +4538,7 @@ async function valRunValidateCore(validationToken){
   // after a uniform '+1' numeric run is firmly established (>=5 rows) so Bates
   // conventions that are intentionally non-contiguous never raise false alarms.
   // All B-6 results are ADVISORY and never affect the PASS/FAIL verdict.
-  const identityQcCap = 5000000;
+  const identityQcCap = 500000;
   const seenSrc = new Set();
   let qcSkippedSize = false;
   let idDupSrc = 0, idDupFirst = [];
@@ -4358,8 +4548,8 @@ async function valRunValidateCore(validationToken){
 
   await valStreamPair(
     {
-      a: { file: validator.src, meta: validator.srcMeta, fmt: validator.srcFmt, hasher: srcHasher },
-      b: { file: validator.out, meta: validator.outMeta, fmt: validator.outFmt, hasher: outHasher }
+      a: { file: validator.src, meta: validator.srcMeta, fmt: validator.srcFmt, headers: validator.srcHdr, hasher: srcHasher },
+      b: { file: validator.out, meta: validator.outMeta, fmt: validator.outFmt, headers: validator.outHdr, hasher: outHasher }
     },
     async (recA, recB, rowIdx)=>{
       if(validationToken !== validationOperationToken) throw new Error('Validation superseded by a newer run.');
@@ -4371,20 +4561,21 @@ async function valRunValidateCore(validationToken){
       const cellsB = recB === null ? null : valSplitRow(validator.outFmt, recB);
       if(recA !== null && recB === null){ stat.srcExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:stat.rows, col:0, src: valEscapeForReport(recA), out:'<missing output row>'}); return; }
       if(recB !== null && recA === null){ stat.outExtra++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:stat.rows, col:0, src:'<missing source row>', out: valEscapeForReport(recB)}); return; }
-      // Short rows (fewer cells than the header) mean trailing empty columns in
-      // positional FE/Concordance/CSV. The writer already pads those with '' and
-      // compares identically, so short source/output rows are validated by padding
-      // rather than failed (removes false FAILs on override/mismatch saves). Only
-      // EXTRA cells - a row with MORE fields than its header - stay a real schema
-      // corruption and fail.
+      // Strict production profile: every row must match its header width exactly.
+      // Short rows are not guessed/padded and long rows are not truncated; either
+      // shape is structural schema corruption and fails validation.
       if(cellsA && validator.srcHdr && cellsA.length > validator.srcHdr.length){
         stat.srcLong++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:`<source schema: ${cellsA.length} cells; expected ${validator.srcHdr.length}>`,out:'<not compared>'}); return;
       }
-      if(cellsA && validator.srcHdr && cellsA.length < validator.srcHdr.length) stat.srcShort++;
+      if(cellsA && validator.srcHdr && cellsA.length < validator.srcHdr.length){
+        stat.srcShort++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:`<source schema: ${cellsA.length} cells; expected ${validator.srcHdr.length}>`,out:'<not compared>'}); return;
+      }
       if(cellsB && validator.outHdr && cellsB.length > validator.outHdr.length){
         stat.outLong++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:'<not compared>',out:`<output schema: ${cellsB.length} cells; expected ${validator.outHdr.length}>`}); return;
       }
-      if(cellsB && validator.outHdr && cellsB.length < validator.outHdr.length) stat.outShort++;
+      if(cellsB && validator.outHdr && cellsB.length < validator.outHdr.length){
+        stat.outShort++; stat.mismatch++; if(stat.firstMis.length<5) stat.firstMis.push({row:rowIdx+1,col:0,src:'<not compared>',out:`<output schema: ${cellsB.length} cells; expected ${validator.outHdr.length}>`}); return;
+      }
 
       for(let oi = 0; oi < validator.mapping.length; oi++){
         const si = validator.mapping[oi];
@@ -4459,17 +4650,15 @@ async function valRunValidateCore(validationToken){
     }
   );
 
+  if(validationToken !== validationOperationToken) throw new Error('Validation superseded by a newer run.');
   // Structural checks
   const srcRec = validator.srcInfo ? (validator.srcInfo.dataRecords||0) : stat.rows;
   const outRec = validator.outInfo ? (validator.outInfo.dataRecords||0) : stat.rows;
   const recMatch = srcRec === outRec;
   const headerCountMatch = validator.mapping.length === validator.outHdr.length;
-  // Structural schema corruption = rows with MORE fields than the header (a real
-  // column shift / extra-cell defect). SHORT rows (fewer fields) are trailing
-  // empty columns in positional FE/Concordance/CSV and are validated by padding,
-  // so they must NOT drive the indexed FAIL (v2.17 aligns index and per-row logic).
-  const srcIndexedMismatch = !!(validator.srcInfo && (validator.srcInfo.longRows || 0) > 0);
-  const outIndexedMismatch = !!(validator.outInfo && (validator.outInfo.longRows || 0) > 0);
+  // Strict schema: any indexed field-count mismatch (short or long) is a FAIL.
+  const srcIndexedMismatch = !!(validator.srcInfo && (validator.srcInfo.mismatched || 0) > 0);
+  const outIndexedMismatch = !!(validator.outInfo && (validator.outInfo.mismatched || 0) > 0);
   const truncated = !!(validator.srcInfo && validator.srcInfo.utf16TruncatedTail) || !!(validator.outInfo && validator.outInfo.utf16TruncatedTail);
 
   // ---- Byte-level metadata equality (G3) --------------------------------
@@ -4492,6 +4681,7 @@ async function valRunValidateCore(validationToken){
     srcEolInfo.counts.crlf   !== outEolInfo.counts.crlf ||
     srcEolInfo.counts.lfOnly !== outEolInfo.counts.lfOnly ||
     srcEolInfo.counts.crOnly !== outEolInfo.counts.crOnly);
+  const mixedEolStrictFail = !!(srcEolMixed || (outEolInfo && outEolInfo.mixed));
 
   // ---- Re-read byte digests (G4/G1) --------------------------------------
   // Hash digest is final once both side scans have pushed their EOF marker,
@@ -4503,13 +4693,16 @@ async function valRunValidateCore(validationToken){
   }catch(e){ console.warn('Re-read SHA-256 digest failed:', e); }
   // 1-Click session: compare the disk file just read against the bytes the
   // save actually wrote (captured at save time). FSA = real on-disk proof.
-  const savedHashCheckable = !!(lastSavedSrcHash || lastSavedOutHash);
-  const diskSrcMismatch  = !!(lastSavedSrcHash && (!srcReadHash  || lastSavedSrcHash  !== srcReadHash));
-  const diskOutMismatch = !!(lastSavedOutHash && (!outReadHash || lastSavedOutHash !== outReadHash));
+  const savedHashCheckable = validator.src === state.file && validator.out === lastSavedOutput && !!(lastSavedSrcHash && lastSavedOutHash);
+  const diskSrcMismatch  = !!(savedHashCheckable && lastSavedSrcHash && (!srcReadHash  || lastSavedSrcHash  !== srcReadHash));
+  const diskOutMismatch = !!(savedHashCheckable && lastSavedOutHash && (!outReadHash || lastSavedOutHash !== outReadHash));
+  const analyzedBytesMismatch = !srcReadHash || !outReadHash ||
+    srcReadHash !== (validator.srcInfo && validator.srcInfo.byteHash) ||
+    outReadHash !== (validator.outInfo && validator.outInfo.byteHash);
 
   const failed = stat.mismatch > 0 || stat.idMismatch > 0 || srcRec !== outRec || !headerCountMatch ||
     !!srcSkip || !!outSkip || truncated || srcIndexedMismatch || outIndexedMismatch ||
-    encMismatch || eolMismatch || diskSrcMismatch || diskOutMismatch;
+    encMismatch || eolMismatch || mixedEolStrictFail || diskSrcMismatch || diskOutMismatch || analyzedBytesMismatch;
   const status = failed ? 'FAIL' : (stat.expected > 0 ? 'PARSED-VALUE PASS (with expected transformations)' : 'PARSED-VALUE PASS');
   valReportText = valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status });
   valReportText += `\n== Mapping assurance ==\nMapping source    : ${validator.mappingSource}\nLinked columns   : ${validator.mapping.filter(x=>x!==null).length}\nIdentity field   : ${validator.srcHdr[identityIdx] || '(unnamed)'} (source column ${identityIdx+1})\nIdentity linked  : YES\nExpected blanks  : ${validator.expectedBlank.size}\nUnapproved blanks: 0\n`;
@@ -4543,9 +4736,10 @@ async function valRunValidateCore(validationToken){
 
   // ---- Byte integrity of the actual re-read files (G4 / G1) -------------
   valReportText += `\n== Byte integrity (re-read) ==\nSource re-read SHA-256 : ${srcReadHash || '(hash unavailable)'}\nOutput re-read SHA-256 : ${outReadHash || '(hash unavailable)'}\n`;
+  valReportText += `Analyzed==Re-read bytes : ${analyzedBytesMismatch ? 'MISMATCH / UNAVAILABLE — reload both files' : 'MATCH (both files)'}\n`;
   valReportText += `Encoding match         : ${validator.srcMeta && validator.outMeta ? (validator.outMeta.kind === validator.srcMeta.kind ? 'MATCH' : 'MISMATCH ❌ (' + validator.srcMeta.label + ' -> ' + validator.outMeta.label + ')') : '—'}\n`;
   valReportText += `BOM match              : ${validator.srcMeta && validator.outMeta ? ((!!validator.outMeta.hasBOM) === (!!validator.srcMeta.hasBOM) ? 'MATCH' : 'MISMATCH ❌') : '—'}\n`;
-  valReportText += `EOL match              : ${srcEolMixed ? 'source mixed — normalized output allowed' : (eolMismatch ? 'MISMATCH ❌' : 'MATCH')}\n`;
+  valReportText += `EOL match              : ${mixedEolStrictFail ? 'MIXED EOL BLOCKED ❌' : (eolMismatch ? 'MISMATCH ❌' : 'MATCH')}\n`;
   if(srcEolInfo || outEolInfo){
     const fmtCnt = (info) => info && info.counts
       ? `${info.label} · CRLF ${info.counts.crlf} / LF ${info.counts.lfOnly} / CR ${info.counts.crOnly}`
@@ -4585,7 +4779,7 @@ function valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, 
   const rowShape = (info) => {
     if(!info) return '?';
     if((info.longRows||0) > 0) return (info.longRows||0).toLocaleString() + ' long row(s) (extra cells) ❌';
-    if((info.shortRows||0) > 0) return (info.shortRows||0).toLocaleString() + ' short row(s) padded as trailing empties';
+    if((info.shortRows||0) > 0) return (info.shortRows||0).toLocaleString() + ' short row(s) (missing cells) ❌';
     return 'ALL ROWS MATCH HEADER';
   };
   A('Source row shape : ', rowShape(validator.srcInfo));
@@ -4596,7 +4790,7 @@ function valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, 
   A('== Cell-level comparison ==');
   A('Cells compared   : ', stat.ok.toLocaleString());
   A('Identical        : ', stat.identical.toLocaleString());
-  A('Accepted EOL-only normalization : ', stat.expected.toLocaleString(), ' (destructive cleansing is never auto-approved)');
+  A('Accepted transformations         : ', stat.expected.toLocaleString(), ' (strict FE/DC4 profile auto-approves no destructive cleansing)');
   A('Mismatch         : ', stat.mismatch.toLocaleString());
   A('Extra src rows   : ', stat.srcExtra, ' / Extra out rows : ', stat.outExtra);
   A('');
@@ -4652,11 +4846,14 @@ function wireValDrop(el, input, cb){
 }
 
 async function valRunValidate(){
-  if(coreSelfTestOk === false){ toast('Startup self-test failed — validation is DISABLED for data safety. Reload the page.'); return; }
-  const token = ++validationOperationToken;
+  if(coreSelfTestOk !== true || !SHA256_SELF_TEST_OK){ toast('Startup self-test failed — validation is DISABLED for data safety. Reload the page.'); return; }
+  valInvalidateResult('Validation running — no completed result is available yet.');
+  const token = validationOperationToken;
   try { await valRunValidateCore(token); }
   catch(err){
     console.error(err);
+    if(token !== validationOperationToken) return;
+    reportOperationError('validation', err);
     valReportText = `VALIDATION ERROR\n${err && err.message ? err.message : String(err)}\n`;
     val.statusBadge.textContent = 'ERROR';
     val.statusBadge.className = 'badge danger';
@@ -4675,11 +4872,13 @@ function valRefreshIdentityOptions(){
   sel.innerHTML = '';
   const blank = document.createElement('option'); blank.value=''; blank.textContent='Select approved identity field'; sel.appendChild(blank);
   headers.forEach((name,i)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=`${i+1}. ${name || '(blank header)'}`; sel.appendChild(o); });
-  // Restore the user's explicit pick by NAME. If that header no longer exists
-  // (a different source file was loaded), drop the stale choice and fall back.
+  // Restore by exact original column index + name. This is safe even when the
+  // source contains duplicate header names; never use findIndex(name) here.
   if(identityUserChoice !== null){
-    const idx = headers.findIndex(h => String(h) === identityUserChoice);
-    if(idx >= 0){ sel.value = String(idx); return; }
+    const idx = Number(identityUserChoice.index);
+    if(Number.isInteger(idx) && idx >= 0 && idx < headers.length && String(headers[idx]) === String(identityUserChoice.name)){
+      sel.value = String(idx); return;
+    }
     identityUserChoice = null;
   }
   const preferred = headers.findIndex(n=>/^(control[ _-]?number|begdoc|docid|document[ _-]?id)$/i.test(String(n).trim()));
@@ -4697,7 +4896,8 @@ function bindValidator(){
   if(idSel) idSel.addEventListener('change', ()=>{
     const idx = idSel.value !== '' ? Number(idSel.value) : -1;
     identityUserChoice = (idx >= 0 && validator.srcHdr && idx < validator.srcHdr.length)
-      ? String(validator.srcHdr[idx]) : null;
+      ? { name:String(validator.srcHdr[idx]), index:idx } : null;
+    valInvalidateResult('Record identity selection changed — validation must be run again.');
   });
   $('#btnValMapParse').addEventListener('click', valParsePastedMap);
   $('#btnValAutoMap').addEventListener('click', valAutoMap);
@@ -4714,6 +4914,8 @@ bindValidator();
    Events
    ============================================================= */
 function bindButtons(){
+  $('#btnDownloadErrors').addEventListener('click', ()=>downloadTextFile(
+    'field-mapper-errors.json', JSON.stringify({toolVersion:TOOL_VERSION,build:TOOL_BUILD,...operationErrors},null,2)));
   $('#btnAddAll').addEventListener('click', ()=>{
     state.orderTarget = state.headerNames.map((_,i)=>i);
     state.selection = null;
@@ -4748,74 +4950,16 @@ function bindButtons(){
     toast('Removed: ' + removed.join(', '));
   });
 
-  // Manual format override
+  // Re-parsing uses the same transactional loader and invalidation as a new source.
   fmtOverride.addEventListener('change', async ()=>{
-    state.manualFmt = fmtOverride.value;
-    const newFmt = state.manualFmt && FORMATS[state.manualFmt] ? state.manualFmt : detectFormat(state.detected ? state.detected.sampleText : '');
-    if(!FORMATS[newFmt]) return;
-    if(!state.file || !state.detected){
-      toast('⚠️ No file loaded. Load a FE/DC4 DAT first.');
-      return;
+    if(saveOperationActive || state.parsing){ toast('Wait for the current operation to finish.'); return; }
+    if(fmtOverride.value && fmtOverride.value !== 'fe'){
+      fmtOverride.value = '';
+      toast('Re-parse blocked: this release supports strict FE/DC4 only.'); return;
     }
-    loadToken++;
-    setBusy('Re-parsing…', 'Reading file with the selected format…');
-    try{
-      const reMeta = state.detected;
-      // Parse + EOL/tail probe run to completion BEFORE any state is mutated,
-      // so a failure here can never leave the rendered UI inconsistent with
-      // half-updated (or stale-then-partially-new) state.
-      const parsed = await buildFileIndex(state.file, reMeta, newFmt, ({pct}) => {
-        if(pct !== null) setBusy('Re-parsing…', `${pct}% scanned`);
-      });
-      if(!parsed){
-        toast('⚠️ No parseable header found with that format.');
-        clearBusy();
-        return;
-      }
-      const reparsedTail = await probeFileEol(state.file, reMeta);
-
-      // ---- atomic commit after every async step succeeded ----
-      state.fmtKey = newFmt;
-      state.headerNames = parsed.headerNames;
-      state.previews = parsed.previews;
-      state.parseInfo = {
-        headerRaw: parsed.headerRaw,
-        dataRecords: parsed.dataRecords,
-        rowFieldCounts: parsed.rowFieldCounts,
-        multiline: parsed.multiline,
-        parseErrors: parsed.parseErrors || 0,
-        parseErrorFirst: parsed.parseErrorFirst || null,
-        parseErrorMessage: parsed.parseErrorMessage || null,
-        mismatchedRows: parsed.mismatched,
-        shortRows: parsed.shortRows || 0,
-        longRows: parsed.longRows || 0
-      };
-      state.unclosedQualifier = parsed.unclosedQualifier || null;
-      state.utf16TruncatedTail = !!parsed.utf16TruncatedTail;
-      state.eol = parsed.eolInfo.eol;
-      state.eolLabel = parsed.eolInfo.label;
-      state.mixedEol = !!parsed.eolInfo.mixed;
-      state.eolCounts = parsed.eolInfo.counts;
-      state.origHadTrailingEOL = !!reparsedTail.origHadTrailingEOL;
-      state.orderTarget = parsed.headerNames.map((_,i)=>i);
-      state.selection = null;
-      // F1: a re-parse resets the working column plan, so any 1-Click validation
-      // context from a previous save must not be reused against it.
-      const repWasActive = !!(lastSavedOutput && lastSavedMode);
-      invalidateLastSaved();
-      fmtBadge.textContent = `${FORMATS[newFmt].label}  — ${FORMATS[newFmt].hint}${state.manualFmt ? ' (manual override)' : ''}`;
-      renderSummary();
-      showWorkspace();
-      showIssues();
-      updateSaveGuardUi();
-      if(typeof clResetUi === 'function') clResetUi();
-      toast(`Re-parsed as ${FORMATS[newFmt].label}` + (repWasActive ? ' · 이전 산출물의 1-Click 검증은 해제됨 — 다시 저장 후 활성화됩니다.' : ''));
-    } catch(err){
-      console.error(err);
-      toast('⚠️ Re-parse failed: ' + (err && err.message ? err.message : 'error'));
-    } finally {
-      clearBusy();
-    }
+    const file = state.file;
+    if(!file){ toast('No source loaded.'); return; }
+    await loadFile(file);
   });
   btnReParse.addEventListener('click', ()=>{
     fmtOverride.dispatchEvent(new Event('change'));
@@ -4846,6 +4990,9 @@ dropZone.addEventListener('drop', e=>{
 
 function openFileHandler(file){
   if(!file) return;
+  if(saveOperationActive){ toast('Wait for the active save to finish before loading a source.'); return; }
+  // v2.18.1 HIGH fix: never keep the previous source alive while a replacement
+  // file is being parsed. If the new file fails, save remains impossible.
   state.manualFmt = '';
   const el = $('#fmtOverride');
   if(el) el.value = '';
@@ -5087,6 +5234,18 @@ function buildAuditReport(info){
   A('truncated trailing EOL are not detected by the counter above.');
   A('');
 
+  const sc = info.saveSelfCheck || {};
+  A('== Immediate Post-Save Self-Check ==');
+  A('Self-check status                  : ', sc.failed ? 'FAILED — OUTPUT UNUSABLE ❌' : 'PASS');
+  A('Written-record reconciliation      : ', sc.recCountFail ? 'FAIL' : 'PASS');
+  A('Written-byte / saved-size check    : ', sc.sizeFail ? 'FAIL' : 'PASS',
+    (sc.bytesWritten != null ? ('  [written=' + sc.bytesWritten + ', saved=' + sc.diskSize + ']') : ''));
+  A('Header / byte verification         : ', sc.headerFailNote ? ('FAIL — ' + sc.headerFailNote) : 'PASS');
+  A('Re-read scope                       : ', sc.diskBacked ? 'selected disk file' : 'in-memory Blob only; downloaded disk file NOT verified');
+  A('Re-read SHA-256                      : ', sc.rereadHash || '(not completed)');
+  if(sc.failed) A('DO NOT USE OUTPUT                  : YES — save self-check failed.');
+  A('');
+
   A('== Data Loss Report ==');
   const w = saveStats;
   // EDML structural controls are fail-closed: the save preflight blocks the
@@ -5102,7 +5261,7 @@ function buildAuditReport(info){
   }
   const anyLoss = (w.cpLost > 0) || !!state.utf16TruncatedTail;
   A('Transformation   : ', anyLoss ? 'COMPLETE WITH WARNINGS' : 'COMPLETE');
-  A('Validation       : NOT PERFORMED - actual saved file was not re-read');
+  A('Cell comparison  : NOT PERFORMED - run Validator against original and output before delivery.');
   A('');
 
   A('== Checksums (SHA-256) ==');
@@ -5141,7 +5300,9 @@ function buildAuditReport(info){
     removed.forEach(o=>{ A('   - ', o.n, ' (source col ', (o.i+1), ')'); });
   }
 
-  const status = recOk && !anyLoss ? 'TRANSFORMATION COMPLETE - NOT VALIDATED' : (recOk ? 'TRANSFORMATION COMPLETE - WARN - NOT VALIDATED' : 'TRANSFORMATION FAILED');
+  const status = (info.saveSelfCheck && info.saveSelfCheck.failed)
+    ? 'TRANSFORMATION FAILED - OUTPUT UNUSABLE'
+    : (recOk && !anyLoss ? 'TRANSFORMATION COMPLETE - NOT VALIDATED' : (recOk ? 'TRANSFORMATION COMPLETE - WARN - NOT VALIDATED' : 'TRANSFORMATION FAILED'));
   A('');
   A('Validation scope : Parsed-value reconciliation only; this is not forensic identity or chain-of-custody proof.');
   return { text: L.join('\n') + '\n', status };
@@ -5191,7 +5352,7 @@ let SHA256_SELF_TEST_OK = false;
       const cb = document.getElementById(id);
       if(cb){ cb.checked=false; cb.disabled=true; cb.title='Disabled: SHA-256 self-test failed.'; }
     });
-    setTimeout(()=>toast('⛔ SHA-256 self-test failed. Transformation audit hashing is disabled.'),0);
+    setTimeout(()=>toast('⛔ SHA-256 self-test failed. Saving and validation are disabled.'),0);
   }
 })();
 
@@ -5204,19 +5365,25 @@ function runCoreSelfTest(){
   const t = (cond, name) => { if(!cond) fails.push(name); };
   try {
     const F = '\u00FE', D = '\u0014';
-    const mline = 'a\nb\r\nc';
-    const rt = feSplit(feCompose(['DOCID','TXT',mline]));
-    t(rt.length === 3 && rt[2] === mline, 'FE round-trip w/ embedded newlines');
-    t(ccSplit(ccCompose(['x','y'])).join('|') === 'x|y', 'Concordance round-trip');
-    t(csvSplit(csvCompose(['x','y"z'])).join('|') === 'x|y"z', 'CSV quote-escape round-trip');
+    const rt = feSplit(feCompose(['DOCID','TXT','line1\u00AEline2']));
+    t(rt.length === 3 && rt[2] === 'line1\u00AEline2', 'strict FE round-trip with U+00AE long-text newline marker');
+    t(feSplit(feCompose(['ONLY']))[0] === 'ONLY', 'strict one-column FE round-trip');
     let threw = false; try { feCompose(['a'+D+'b']); } catch(e){ threw = true; }
     t(threw, 'raw DC4 in value is blocked');
+    threw = false; try { feCompose(['a'+F+'b']); } catch(e){ threw = true; }
+    t(threw, 'literal FE/þ in value is blocked');
+    threw = false; try { feCompose(['a\nb']); } catch(e){ threw = true; }
+    t(threw, 'raw CR/LF in value is blocked');
+    threw = false; try { feSplit(F+'a'+F+F+'b'+F); } catch(e){ threw = true; }
+    t(threw, 'legacy no-DC4 / ambiguous FE row is blocked');
     let st = false; try { sanitizeScalarValue('a\uD83D'); } catch(e){ st = true; }
     t(st, 'lone high surrogate blocked');
     t(sanitizeScalarValue('a\uD83D\uDE00b').length === 4, 'surrogate pair preserved');
-    t(detectFormat(F+'A'+F+D+F+'B'+F) === 'fe', 'detect modern FE');
+    t(detectFormat(F+'A'+F+D+F+'B'+F) === 'fe', 'detect strict FE/DC4');
+    t(detectFormat(F+'ONLY'+F) === 'fe', 'detect strict single-column FE');
+    t(detectFormat(F+'A'+F+F+'B'+F) === 'legacy-fe', 'detect and classify legacy no-DC4 FE as blocked');
     t(detectFormat(F+'SMITH, JOHN'+F+D+F+'B'+F) === 'fe', 'FE header containing comma stays FE');
-    t(detectFormat('"a","b"') === 'csv', 'detect CSV');
+    t(detectFormat('"a","b"') === 'csv', 'detect CSV so it can be explicitly blocked');
     const crlf = detectEol('a\r\nb');
     t(!crlf.mixed && crlf.eol === '\r\n', 'detect single CRLF');
     const lf = detectEol('a\nb\nc');
@@ -5281,9 +5448,20 @@ function runSelfTest(interactive){
   if(b) b.addEventListener('click', ()=> runSelfTest(true));
 })();
 
-console.info('DAT Field Reorder v' + TOOL_VERSION + ' — streaming edition. Supported: FE/DC4 DAT (DC4 layout and legacy no-DC4 layout). Concordance, TSV, Pipe, CSV and CP1252 are blocked. All local.');
+console.info('DAT Field Reorder v' + TOOL_VERSION + ' — STRICT FE/DC4 production profile. Legacy no-DC4 FE, literal þ/raw CR-LF in fields, mixed EOL, leading blank lines, CP1252 and destructive overwrite are blocked. All local.');
 
-/* v2.17.0 completes short-row harmonization: the validator's indexed/structural
+/* v2.18.1 production-hardening hotfix:
+   H1 selecting a replacement source invalidates the prior source immediately;
+   H2 validator side/mapping/identity/Expected-Blank changes clear stale PASS/report state immediately;
+   H3 save self-check failures propagate into the audit report as OUTPUT UNUSABLE;
+   M1 single-record cap reduced to 64M UTF-16 units and preview retention capped at 1M units/record;
+   M2 validator identity choice is retained by exact source column index + name, safe with duplicate names. */
+/* v2.18.0 strict production profile: FE/DC4 only; ambiguous legacy no-DC4 FE,
+   literal U+00FE inside fields, raw CR/LF inside fields, mixed record EOL, CP1252,
+   field-count mismatches, leading blank lines, unmapped delivery columns, duplicate output headers, T3 fuzzy auto-match, and
+   replacement of existing non-empty destinations are fail-closed. Validator
+   no longer treats mixed EOL/value EOL normalization as an expected PASS.
+   v2.17.0 completes short-row harmonization: the validator's indexed/structural
    FAIL previously used srcInfo/outInfo.mismatched (which counts SHORT + LONG rows
    together), so even a purely short-row (trailing-empty) file still failed. Now
    structural FAIL is driven only by LONG rows (extra cells), matching the padded
@@ -5332,6 +5510,6 @@ console.info('DAT Field Reorder v' + TOOL_VERSION + ' — streaming edition. Sup
    chain, identity row linkage, encoding/BOM/EOL style-and-count equality,
    stale-context invalidation, timestamped report downloads. */
 </script>
-<!-- v2.17.0 FE/DC4 data-integrity hardening release -->
+<!-- v2.18.1 production-hardened hotfix: stale source/validator invalidation, audit self-fail propagation, bounded previews, duplicate identity fix -->
 </body>
 </html>

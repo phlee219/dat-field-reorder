@@ -6,6 +6,25 @@ Everything runs **locally** — no upload, no server, no network. Works best in 
 
 ---
 
+## Deployment & verification summary (v2.17.0)
+
+**Verified status** (executed with Node v24.20.0):
+- `tests/run_core_tests.mjs` → **98 PASS / 0 FAIL** (parsers, encoders, streaming chunk boundaries, tiered auto-match, record-separator EOL, header alignment, short/long rows, synthetic fixtures, property tests).
+- `tests/run_dom_flow.mjs` → **15 PASS / 0 FAIL** (whole page initialises, R1 pure-core self-test passes, real `loadFile → saveFileCore → validator` returns PASS, short-row override save succeeds).
+- `node --check` over the entire inline `<script>` → no syntax errors.
+
+**Changelog lineage:**
+- v2.10 — base: streaming FE/DC4 reorder/client-map + re-read validator + SHA-256 audit + fail-closed preflight.
+- v2.11 — decoder fail-closed, structural format detection, row-count assertion, overwrite backup, identity QC.
+- v2.12 — record-separator EOL accounting (dominant style), leading-blank tolerance, startup pure-core self-test.
+- v2.13 — 3-tier field auto-matching (T1 Exact / T2 Similar / T3 Lenient alias+fuzzy).
+- v2.14 — validator short-row padding (rows with fewer fields compared as trailing empties).
+- v2.15 — header-alignment centralisation (`dataRowStreamer`) so leading blanks never leak the header as a data row.
+- v2.16 — on-demand core diagnostics + instant saved-file header self-check.
+- v2.17 — validator structural FAIL driven by LONG rows only (short rows = padded), completing the harmonisation.
+
+**Operational acceptance:** see the Pre-flight acceptance checklist below. The only remaining manual step is a real-browser smoke test (File System Access streaming save + 🧪 1-Click validation), since those browser APIs cannot be exercised headlessly here.
+
 ## What changed in v2.17.0 — short-row harmonization completed
 
 v2.14 relaxed the per-row comparison for short rows but the validator's final
@@ -29,9 +48,9 @@ validates cleanly when its only difference is omitted trailing empty fields.
 ## Pre-flight acceptance checklist (recommended before any real delivery)
 
 1. **Run the core test harness (Node ≥ 18):** `node tests/run_core_tests.mjs` → expect `PASS … FAIL 0`
-   (verified: **94 pass / 0 fail on Node v24.20.0**).
+   (verified: **98 pass / 0 fail on Node v24.20.0**).
 2. **Run the DOM-stub end-to-end harness:** `node tests/run_dom_flow.mjs` → expect `PASS … FAIL 0`
-   (verified: **11 pass / 0 fail** — the whole page loads under a DOM stub, the R1 self-test
+   (verified: **15 pass / 0 fail** — the whole page loads under a DOM stub, the R1 self-test
    passes, a real `loadFile → saveFileCore` save completes cleanly, and the validator reports PASS end-to-end).
 3. **Open the app** and confirm the console shows `DAT Field Reorder pure-core self-test OK (v2.17.0)`.
 4. **Footer → 🩺 Run core self-check** → expect a green "Core self-test OK" toast.

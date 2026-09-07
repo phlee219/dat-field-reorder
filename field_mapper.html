@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<!-- Field Mapper v2.18.4 - RELEASE CANDIDATE STRICT FE/DC4 profile. Internal versioning only; shipping filename remains field_mapper.html. Pasted Validator maps now preserve truthful manual-exact/T2 provenance and never auto-fill omitted output columns. -->
+<!-- Field Mapper v2.18.5 - RELEASE CANDIDATE STRICT FE/DC4 profile. Internal versioning only; shipping filename remains field_mapper.html. Topbar watermark centered and updated to bilingual owner mark. -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -39,17 +39,17 @@
     background:linear-gradient(115deg,#102b5c 0%,#1556c9 70%,#1a6ae0 100%);
     color:#fff; display:flex; align-items:center; justify-content:space-between;
     gap:16px; padding:16px 26px; flex-wrap:wrap;
-    box-shadow:var(--shadow); position:sticky; top:0; z-index:50;
+    box-shadow:var(--shadow); position:sticky; top:0; z-index:50; overflow:hidden;
   }
   .creator-credit{
-    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    font-size:10.5px; opacity:.55; letter-spacing:1.2px; white-space:nowrap;
-    pointer-events:none; color:#fff; font-weight:400; text-transform:uppercase;
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:11.5px; opacity:.34; letter-spacing:.08em; white-space:nowrap;
+    pointer-events:none; color:#fff; font-weight:600; text-align:center; z-index:0;
   }
   @media (max-width:600px){
-    .creator-credit{display:none}
+    .creator-credit{font-size:10px; opacity:.28}
   }
-  .brand{display:flex;align-items:center;gap:12px}
+  .brand{display:flex;align-items:center;gap:12px;position:relative;z-index:1}
   .brand .logo{
     width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,.14);
     display:flex;align-items:center;justify-content:center;font-size:22px;
@@ -60,7 +60,7 @@
   .privacy-badge{
     background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.35);
     padding:7px 14px;border-radius:999px;font-size:12.5px;display:flex;gap:7px;
-    align-items:center;font-weight:500;white-space:nowrap;
+    align-items:center;font-weight:500;white-space:nowrap;position:relative;z-index:1;
   }
 
   main{max-width:1500px;margin:26px auto 0;padding:0 24px;display:grid;gap:20px}
@@ -446,7 +446,7 @@
 <body>
 <div style="background:#fff3cd;color:#5c4300;padding:8px 14px;border-bottom:1px solid #e5c76b;font:600 13px system-ui">STRICT production profile: FE/DC4 DAT only · Column U+0014 (DC4) · Quote U+00FE (þ) · literal þ/raw CR-LF inside fields, mixed EOL, legacy no-DC4 FE, CP1252, and destructive overwrite are blocked.</div>
 <header class="topbar">
-<span class="creator-credit">Hyunsoo Lee</span>
+<span class="creator-credit" aria-hidden="true">이현수 · HYUNSOO LEE</span>
 <div class="brand">
 <div class="logo">🗂️</div>
 <div style="min-width:0">

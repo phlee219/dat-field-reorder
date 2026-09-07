@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 
-<!-- Field Mapper v2.18.1 - PRODUCTION-HARDENED STRICT FE/DC4 profile. Hard-blocks ambiguous legacy no-DC4 FE, literal U+00FE inside fields, raw CR/LF inside fields, mixed record-separator EOL on save/validation, and replacement of an existing non-empty destination. Keeps streaming, fail-closed parsing, post-save re-read validation, SHA-256 audit, row-count reconciliation, encoding/BOM/EOL checks, identity row linkage, and core self-test. -->
+<!-- Field Mapper v2.18.4 - RELEASE CANDIDATE STRICT FE/DC4 profile. Internal versioning only; shipping filename remains field_mapper.html. Pasted Validator maps now preserve truthful manual-exact/T2 provenance and never auto-fill omitted output columns. -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<!-- Local-only policy: no network, external origin, blob worker or remote resource is permitted. Inline script/style are required for a single-file tool. -->
+<meta content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; manifest-src 'none'" http-equiv="Content-Security-Policy"/>
 <title>DAT Field Reorder — .dat / Load File Reordering &amp; Removal</title>
 <link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'&gt;&lt;text y='.9em' font-size='90'&gt;🗂️&lt;/text&gt;&lt;/svg&gt;" rel="icon"/>
 <style>
@@ -641,6 +643,7 @@ CUSTODIAN	Custodian
 
 </select>
 <button class="btn sm" id="btnClAutoGuess" title="Automatically match client headers by exact or normalized name. Fuzzy/alias T3 is disabled in the strict production profile.">✨ Auto-Match</button>
+<label class="meta" style="display:inline-flex;align-items:center;gap:5px;font-size:12px" title="Required before saving when normalized-name (T2) links exist."><input id="clApproveT2" type="checkbox"/> Approve all T2 links</label>
 </div>
 <div class="listbox" id="clSrcList"></div>
 <div class="preview-note" style="margin-top:8px;margin-bottom:0">
@@ -724,12 +727,12 @@ CUSTODIAN	Custodian
 <div class="card" style="margin-bottom:16px">
 <div class="card-h">
 <h2>✅ Validator — Saved-File Re-Read</h2>
-<span class="meta">Original ↔ Output (parsed-cell comparison with expected cleansing rules)</span>
+<span class="meta">Original ↔ Output (strict parsed-cell comparison)</span>
 </div>
 <p style="font-size:12.8px;color:var(--muted);line-height:1.7;margin-bottom:12px">
           The saved output is <b>read again</b> and compared with the original. The validator compares <b>parsed cell text</b>, not raw bytes.
-          Only EOL normalization is classified as <b>EXPECTED</b>. Destructive cleansing is treated as corruption.
-          This tab validates the <b>actual files selected from disk</b>.
+          In the strict FE/DC4 profile no parsed-cell transformation is auto-approved as <b>EXPECTED</b>; destructive cleansing is not performed or excused.
+          Encoding/BOM/EOL style-and-count differences and any value mismatch fail validation. This tab validates the files the user selected from disk.
         </p>
 <div class="val-grid">
 <div>
@@ -776,6 +779,7 @@ CUSTODIAN	Custodian
 </select>
 <button class="btn primary" id="btnValAutoMap">✨ Auto-Match Headers</button>
 <button class="btn" id="btnValClearMap">Clear Map</button>
+<label class="meta" style="display:inline-flex;align-items:center;gap:5px;font-size:12px" title="Required before validation when normalized-name (T2) links exist."><input id="valApproveT2" type="checkbox"/> Approve all T2 links</label>
 <span class="cl-sample" id="valMapPreview" style="margin-top:0"></span>
 <span style="flex:1"></span>
 <button class="btn-big" id="btnValidate">🚀 Validate Files</button>
@@ -783,7 +787,8 @@ CUSTODIAN	Custodian
 <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap">
 <label for="valIdentityField" style="font-size:12.8px;font-weight:700">Required record identity</label>
 <select id="valIdentityField" style="min-width:280px;padding:8px;border:1px solid var(--line);border-radius:8px"><option value="">Select approved identity field</option></select>
-<span class="meta">Must be mapped to output. Blank/duplicate identity QC remains EDML responsibility.</span>
+<label class="meta" style="display:inline-flex;align-items:center;gap:5px"><input id="valApproveIdentity" type="checkbox"/> I approve this identity field</label>
+<span class="meta">Must be mapped to output. Suggestions are not approval. Blank/duplicate identity QC remains EDML responsibility.</span>
 </div><div class="val-mapping-sum hidden" id="valMappingSum"></div>
 <div class="warning-box hidden" id="valExpectedBlank"></div>
 </div>
@@ -791,6 +796,7 @@ CUSTODIAN	Custodian
 <div class="card-h">
 <h2>3️⃣ Validation Result</h2>
 <span class="badge ok" id="valStatusBadge">—</span>
+<button class="btn danger" disabled="" id="btnCancelValidation" type="button">■ Cancel validation</button>
 <button class="btn" disabled="" id="btnValDownload">⬇ Download Transformation Audit Report (.txt)</button>
 </div>
 <div class="val-sum-box hidden" id="valSumBox"></div>
@@ -834,8 +840,8 @@ CUSTODIAN	Custodian
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const TOOL_VERSION = '2.18.1';
-const TOOL_BUILD = '2026-09-06-h3';
+const TOOL_VERSION = '2.18.4';
+const TOOL_BUILD = '2026-09-06-h6';
 // R1: set by the startup pure-core self-test. When false, saving & validation
 // are disabled (fail-closed) so a regression in the core splitters/parsers can
 // never cause a silent bad delivery.
@@ -966,7 +972,17 @@ function feSplit(rec){
   if(s.length < 2 || s[0] !== FE || s[s.length-1] !== FE){
     throw new Error('Malformed FE/DC4 record: record is not fully enclosed by þ qualifiers.');
   }
-  const cols = s.indexOf(FE_DELIM) >= 0 ? s.split(FE_DELIM) : [s];
+  // Fail-closed column-count bound BEFORE split() allocates: count DC4 bytes
+  // with a bounded linear scan (early-exit at the cap). Without this a 64 Mi-unit
+  // record of millions of empty columns would still exhaust memory in split().
+  let dc4Count = 0;
+  for(let i = 0; i < s.length; i++){
+    if(s[i] === FE_DELIM){
+      dc4Count++;
+      if(dc4Count >= MAX_FIELD_COUNT) throw recordTooManyColumnsError(dc4Count + 1);
+    }
+  }
+  const cols = dc4Count > 0 ? s.split(FE_DELIM) : [s];
   const out = [];
   for(let ci=0; ci<cols.length; ci++){
     const col = cols[ci];
@@ -983,6 +999,7 @@ function feSplit(rec){
 function feCompose(fields){
   let units = 0;
   if(!fields.length) throw new Error('Cannot write an empty column plan.');
+  if(fields.length > MAX_FIELD_COUNT) throw recordTooManyColumnsError(fields.length);
   return fields.map((value,ci)=>{
     const v = sanitizeScalarValue(value==null?'':String(value));
     const issue = feValueSafetyIssue(v);
@@ -1085,6 +1102,21 @@ function pipeSplit(rec){ return rec.split('|'); }
 // so the first four pathological records cannot pin hundreds of MB in memory.
 const MAX_RECORD_UNITS = 64 * 1024 * 1024;
 const MAX_PREVIEW_RECORD_UNITS = 1 * 1024 * 1024;
+// v2.18.2: hard cap on COLUMNS per logical record. A 64 Mi-unit record could
+// still contain millions of empty columns; building an array/array-buffer/DOM for
+// those would exhaust memory before any byte limit is hit. The cap is enforced
+// with a bounded delimiter scan BEFORE split() allocates anything. eDiscovery
+// load files use tens to low thousands of columns; the cap is documented and
+// generous. It is fail-closed, not a format broadening.
+const MAX_FIELD_COUNT = 2000;
+// v2.18.2: bounded detail list for the row-width histogram. Matching/mismatching
+// totals stay exact; only the per-width breakdown used for UI/report text is
+// capped so a pathological file with millions of distinct row shapes cannot grow
+// memory with the row count.
+const MAX_TRACKED_WIDTHS = 256;
+function recordTooManyColumnsError(cols){
+  return new Error(`A single FE/DC4 record has ${String(cols)} column${cols === 1 ? '' : 's'}, exceeding the strict safety limit of ${MAX_FIELD_COUNT} columns. Split the source into fewer columns through an approved workflow, then reload.`);
+}
 function recordTooLargeError(kind, recNum){
   return new Error((kind === 'quoted' ? 'A single quoted record' : 'A single data line') +
     ` (record #${recNum}) exceeds the safety limit of ${(MAX_RECORD_UNITS/1024/1024).toFixed(0)}M UTF-16 code units per logical record. This usually indicates inline extracted text, a missing EOL, or an unclosed qualifier. Split extracted text to external files or repair the load file; do not raise this limit without memory testing.`);
@@ -1606,10 +1638,14 @@ function detectFormat(text){
    ============================================================= */
 /* Higher maxTier maps strictly more rows: each tier only fills names the lower
    tiers could not, so the mapped count is monotonic in the chosen tier.
-     tier 1 EXACT     raw trimmed equality
+     tier 1 EXACT     exact source-cell equality (whitespace-sensitive, no trim)
      tier 2 SIMILAR   normalized equality (lowercase, drop non alnum / Hangul)
      tier 3 LENIENT   alias/canonical equality or safe fuzzy similarity
-   Ambiguity (several source columns tie) is never guessed - a tie maps nothing. */
+   Ambiguity (several source columns tie) is never guessed - a tie maps nothing.
+   v2.18.2: tier 1 no longer trims either side. A source header or pasted name
+   with leading/trailing whitespace is preserved verbatim in output and only
+   matches at tier 2+, so whitespace normalization is never hidden inside a
+   claim of "exact" matching. */
 function foldHeader(s){
   return String(s == null ? '' : s).toLowerCase()
     .replace(/&/g, 'and')
@@ -1675,28 +1711,28 @@ function headerNameSim(a, b){
 /* Best-match among srcNames for `name` within maxTier. Returns {idx,tier} or
    null when nothing is safe (ambiguous tie / below threshold / no margin). */
 function findHeaderMatch(name, srcNames, maxTier){
-  const trimmed = String(name == null ? '' : name).trim();
-  // tier 1: exact
+  const target = String(name == null ? '' : name);
+  // tier 1: exact (raw equality - whitespace and case are significant)
   { const hits = [];
-    for(let i = 0; i < srcNames.length; i++) if(srcNames[i] === trimmed) hits.push(i);
+    for(let i = 0; i < srcNames.length; i++) if(srcNames[i] === target) hits.push(i);
     if(hits.length === 1) return { idx: hits[0], tier: 1 }; }
   if(maxTier >= 2){
-    const f = foldHeader(trimmed);
+    const f = foldHeader(target);
     const hits = [];
     for(let i = 0; i < srcNames.length; i++){
-      if(srcNames[i] !== trimmed && foldHeader(srcNames[i]) === f) hits.push(i);
+      if(srcNames[i] !== target && foldHeader(srcNames[i]) === f) hits.push(i);
     }
     if(hits.length === 1) return { idx: hits[0], tier: 2 };
   }
   if(maxTier >= 3){
     let best = -1, bestSim = -0.01, second = -0.02;
     for(let i = 0; i < srcNames.length; i++){
-      const sim = headerNameSim(trimmed, srcNames[i]);
+      const sim = headerNameSim(target, srcNames[i]);
       if(sim > bestSim){ second = bestSim; bestSim = sim; best = i; }
       else if(sim > second){ second = sim; }
     }
     const THR = 0.82, MARGIN = 0.04;
-    if(best >= 0 && bestSim >= THR && (bestSim - second) >= MARGIN && srcNames[best] !== trimmed){
+    if(best >= 0 && bestSim >= THR && (bestSim - second) >= MARGIN && srcNames[best] !== target){
       return { idx: best, tier: 3 };
     }
   }
@@ -1729,12 +1765,20 @@ function dataRowStreamer(onData){
    ============================================================= */
 const CHUNK_BYTES = 8 * 1024 * 1024; // 8 MiB
 
+class OperationCancelledError extends Error{
+  constructor(reason){ super(reason || 'Operation cancelled.'); this.name = 'OperationCancelledError'; this.cancelled = true; }
+}
+function checkOperation(operation){
+  if(operation && operation.cancelled) throw new OperationCancelledError(operation.reason);
+}
+
 /* Main loop: read file from byte `start` (usually bomBytes),
    decode chunk-by-chunk with the stream decoder, and feed the
    resulting text into a RecordStreamer.
    onRecord(rec) may be async-safe: we await callbacks.
    onProgress({read,total}) is throttled inside. */
-async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
+async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk, operation){
+  checkOperation(operation);
   const dec = createStreamDecoder(meta);
   const streamer = new RecordStreamer(fmtKey, onRecord);
   const total = file.size;
@@ -1804,8 +1848,10 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
   };
 
   while(offset < total){
+    checkOperation(operation);
     let end = Math.min(offset + CHUNK_BYTES, total);
     let bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
+    checkOperation(operation);
 
     if(bytes.length !== end - offset) throw new Error('Source read returned an unexpected byte count.');
 
@@ -1830,6 +1876,7 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
     }
     feed(text);
     await streamer.push(text);
+    checkOperation(operation);
 
     offset += bytes.length; // == end, plus one more when an extra byte was absorbed
     const pct = total ? Math.floor(offset * 100 / total) : 100;
@@ -1838,6 +1885,7 @@ async function scanFile(file, meta, fmtKey, onRecord, onProgress, onRawChunk){
       if(onProgress) await onProgress({ read: offset, total, pct });
     }
   }
+  checkOperation(operation);
   let tail;
   try {
     tail = dec.finish();
@@ -1874,6 +1922,13 @@ const state = {
     rowFieldCounts: null,
     multiline: 0,
     mismatchedRows: 0,
+    shortRows: 0,
+    longRows: 0,
+    firstMismatchRecord: null,
+    untrackedWidthRows: 0,
+    parseErrors: 0,
+    parseErrorFirst: null,
+    parseErrorMessage: null,
     leadingBlankRecords: 0
   },
   orderTarget: [],
@@ -1901,8 +1956,8 @@ function invalidateActiveSourceForNewLoad(pendingName){
   state.headerNames = [];
   state.previews = [];
   state.parseInfo = { headerRaw:null, dataRecords:0, rowFieldCounts:null, multiline:0,
-    mismatchedRows:0, shortRows:0, longRows:0, parseErrors:0,
-    parseErrorFirst:null, parseErrorMessage:null, leadingBlankRecords:0 };
+    mismatchedRows:0, shortRows:0, longRows:0, firstMismatchRecord:null, untrackedWidthRows:0,
+    parseErrors:0, parseErrorFirst:null, parseErrorMessage:null, leadingBlankRecords:0 };
   state.orderTarget = [];
   state.selection = null;
   state.utf16TruncatedTail = false;
@@ -1923,7 +1978,51 @@ function invalidateActiveSourceForNewLoad(pendingName){
    ============================================================= */
 async function buildFileIndex(file, meta, fmtKey, onProgress){
   const analyzedHasher = createSha256();
-  const rowFieldCounts = new Map();
+  // v2.18.2: bounded row-width histogram. Totals (matching / mismatching / short
+  // / long) and the first-mismatch location are EXACT regardless of how many
+  // distinct row shapes occur; only the per-width detail list is capped at
+  // MAX_TRACKED_WIDTHS entries. A pathological 50 GB file whose rows each carry
+  // a different field count can no longer grow a Map with the row count.
+  const fieldStats = {
+    mainWidth: null,
+    mainCount: 0,
+    totalRows: 0,
+    mismatchedRows: 0,
+    shortRows: 0,
+    longRows: 0,
+    firstMismatchRecord: null,
+    untrackedRows: 0,
+    counts: new Map(),
+    setMain(w){ this.mainWidth = w; },
+    add(c, rowNumber){
+      this.totalRows++;
+      if(this.mainWidth !== null && c === this.mainWidth){
+        this.mainCount++;
+        return;
+      }
+      if(this.mainWidth !== null){
+        this.mismatchedRows++;
+        if(c < this.mainWidth) this.shortRows++;
+        else if(c > this.mainWidth) this.longRows++;
+        if(this.firstMismatchRecord === null) this.firstMismatchRecord = rowNumber;
+      }
+      const e = this.counts.get(c);
+      if(e){ e.n++; return; }
+      if(this.counts.size < MAX_TRACKED_WIDTHS){
+        this.counts.set(c, { n: 1 });
+      } else {
+        // Width is real but the bounded detail list is full. The row is still
+        // counted exactly in totalRows/mismatchedRows/short/long above.
+        this.untrackedRows++;
+      }
+    },
+    get(c){
+      if(this.mainWidth !== null && c === this.mainWidth) return this.mainCount;
+      const e = this.counts.get(c);
+      return e ? e.n : 0;
+    },
+    forEach(fn){ this.counts.forEach((e,c)=>fn(e.n, c)); }
+  };
   let dataRecords = 0;
   let previews = [];
   let headerDone = false;
@@ -1947,15 +2046,17 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
       headerRaw = rec;
       const fields = FORMATS[fmtKey].split(rec).map(s => sanitizeScalarValue(s));
       headerNames = fields;
+      fieldStats.setMain(fields.length);
       return;
     }
+    const rowNumber = dataRecords + 1;
     let c = 0;
     try { c = FORMATS[fmtKey].split(rec).length; } catch(e){
       parseErrors++;
-      if(parseErrorFirst === null){ parseErrorFirst = dataRecords + 1; parseErrorMessage = e && e.message ? e.message : String(e); }
+      if(parseErrorFirst === null){ parseErrorFirst = rowNumber; parseErrorMessage = e && e.message ? e.message : String(e); }
       c = 0;
     }
-    rowFieldCounts.set(c, (rowFieldCounts.get(c)||0) + 1);
+    fieldStats.add(c, rowNumber);
     if(rec.indexOf('\n') >= 0 || rec.indexOf('\r') >= 0) multiline++;
     dataRecords++;
     if(previews.length < 4){
@@ -1975,14 +2076,6 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
     return null;
   }
 
-  const headerCount = headerNames.length;
-  let mismatched = 0, shortRows = 0, longRows = 0;
-  rowFieldCounts.forEach((cnt,c)=>{
-    if(c !== headerCount) mismatched += cnt;
-    if(c < headerCount) shortRows += cnt;
-    if(c > headerCount) longRows += cnt;
-  });
-
   return {
     byteHash: analyzedHasher.hexDigest(),
     origHadTrailingEOL: scanResult.origHadTrailingEOL,
@@ -1990,15 +2083,17 @@ async function buildFileIndex(file, meta, fmtKey, onProgress){
     headerNames,
     previews,
     dataRecords,
-    rowFieldCounts,
+    rowFieldCounts: fieldStats,
     multiline,
     parseErrors,
     parseErrorFirst,
     parseErrorMessage,
     leadingBlankRecords,
-    mismatched,
-    shortRows,
-    longRows,
+    mismatched: fieldStats.mismatchedRows,
+    shortRows: fieldStats.shortRows,
+    longRows: fieldStats.longRows,
+    firstMismatchRecord: fieldStats.firstMismatchRecord,
+    untrackedWidthRows: fieldStats.untrackedRows,
     unclosedQualifier: scanResult ? scanResult.unclosedQualifier : null,
     utf16TruncatedTail: scanResult ? !!scanResult.utf16TruncatedTail : false,
     eolInfo: scanResult ? scanResult.eolInfo : detectEol('')
@@ -2032,6 +2127,8 @@ const busyLabelEl = $('#busyLabel');
 const toastEl = $('#toast');
 let toastTimer = null;
 let loadToken = 0;
+const busyOwners = new Set();
+let busyOwnerSeq = 0;
 
 const operationErrors = { schemaVersion:1, total:0, omitted:0, entries:[] };
 function reportOperationError(operation, err, file){
@@ -2059,14 +2156,21 @@ function toast(msg){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>toastEl.classList.remove('show'), 3800);
 }
-function setBusy(title, label){
+function newBusyOwner(prefix){ return String(prefix || 'operation') + '-' + (++busyOwnerSeq); }
+function setBusy(title, label, owner){
+  if(owner) busyOwners.add(owner);
   if(title !== undefined) busyTitleEl.textContent = title;
   if(label !== undefined) busyLabelEl.textContent = label;
   busyEl.classList.add('show');
 }
-function clearBusy(){
+function clearBusy(owner){
+  if(owner){
+    busyOwners.delete(owner);
+    if(busyOwners.size) return false;
+  } else busyOwners.clear();
   busyEl.classList.remove('show');
   busyLabelEl.textContent = '';
+  return true;
 }
 
 function fmtInfo(){ return FORMATS[state.fmtKey]; }
@@ -2084,25 +2188,26 @@ function fmtQualifierLabel(){
   return String(f.quote);
 }
 
-/* Column-count cross-check used by the save guards. Returns a
-   summary object when at least one data row does not match the
-   header column count, otherwise null. */
+/* Column-count cross-check used by the save guards. Totals come from the exact
+   counters (mismatched/short/long) rather than re-summing the bounded per-width
+   histogram, so a width-diverse file never undercounts. Returns a summary
+   object when at least one data row does not match the header column count,
+   otherwise null. */
 function headerMismatchSummary(){
   const p = state.parseInfo;
   if(!p || !p.rowFieldCounts) return null;
   const mainCnt = state.headerNames.length;
   const parts = [];
-  let count = 0, shortRows = 0, longRows = 0;
   p.rowFieldCounts.forEach((cnt,c)=>{
-    if(c !== mainCnt){
-      count += cnt;
-      parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`);
-      if(c < mainCnt) shortRows += cnt;
-      if(c > mainCnt) longRows += cnt;
-    }
+    if(c !== mainCnt) parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`);
   });
+  const untracked = p.untrackedWidthRows || 0;
+  if(untracked > 0){
+    parts.push(`${untracked.toLocaleString()} more mismatching row${untracked===1?'':'s'} from widths beyond the ${MAX_TRACKED_WIDTHS}-width detail limit`);
+  }
+  const count = p.mismatchedRows || 0;
   if(!count) return null;
-  return { count, mainCnt, shortRows, longRows, detail: parts.join(', ') };
+  return { count, mainCnt, shortRows: p.shortRows || 0, longRows: p.longRows || 0, detail: parts.join(', ') };
 }
 
 /* Returns info about a detected trailing unclosed qualifier, or null. */
@@ -2121,6 +2226,17 @@ const cl = {
   srcQ: '',
   pastedName: ''
 };
+
+function clearClientT2Approval(){
+  const cb = document.getElementById('clApproveT2');
+  if(cb) cb.checked = false;
+  clientT2ApprovalUtc = null;
+}
+function unapprovedClientT2Count(){
+  const n = (cl.rows || []).filter(r=>r.mapped !== null && r.tier === 2).length;
+  const cb = document.getElementById('clApproveT2');
+  return n && !(cb && cb.checked) ? n : 0;
+}
 
 function updateSaveGuardUi(){
   const un = unclosedQualifierInfo();
@@ -2211,6 +2327,8 @@ async function loadFile(file){
       mismatchedRows: parsed.mismatched,
       shortRows: parsed.shortRows || 0,
       longRows: parsed.longRows || 0,
+      firstMismatchRecord: parsed.firstMismatchRecord || null,
+      untrackedWidthRows: parsed.untrackedWidthRows || 0,
       parseErrors: parsed.parseErrors || 0,
       parseErrorFirst: parsed.parseErrorFirst || null,
       parseErrorMessage: parsed.parseErrorMessage || null,
@@ -2562,7 +2680,11 @@ function showIssues(){
   if(p.mismatchedRows > 0){
     const parts=[];
     p.rowFieldCounts.forEach((cnt,c)=>{ if(c !== mainCnt) parts.push(`${c} cols × ${cnt.toLocaleString()} row${cnt===1?'':'s'}`); });
-    list.push(`📏 ${p.mismatchedRows.toLocaleString()} row${p.mismatchedRows===1?'':'s'} differ from the header column count (${mainCnt}). Strict mode blocks every field-count mismatch (short or long); it never pads missing cells or discards extra cells.`);
+    const untracked = p.untrackedWidthRows || 0;
+    if(untracked > 0){
+      parts.push(`${untracked.toLocaleString()} more mismatching row${untracked===1?'':'s'} from widths beyond the ${MAX_TRACKED_WIDTHS}-width detail limit`);
+    }
+    list.push(`📏 ${p.mismatchedRows.toLocaleString()} row${p.mismatchedRows===1?'':'s'} differ from the header column count (${mainCnt}). Strict mode blocks every field-count mismatch (short or long); it never pads missing cells or discards extra cells.` + (parts.length ? ' Breakdown (limited detail): ' + parts.join(', ') : ''));
   }
   const srcDup = duplicateNameList(state.headerNames);
   if(srcDup.length) list.push('⚠️ Duplicate source headers detected: ' + srcDup.map(d=>`${d.name} (cols ${d.columns.join(', ')})`).join('; ') + '. Name-based auto-mapping is disabled for ambiguous duplicates.');
@@ -2622,14 +2744,16 @@ let lastPreflightAcknowledgement = {
    a decoded-value scan can never find them — this reads raw code units instead
    so the fail-closed promise actually holds. A high/low surrogate pair may
    straddle a chunk boundary; state is carried across chunks. */
-async function scanUtf16UnpairedSurrogates(file, meta){
+async function scanUtf16UnpairedSurrogates(file, meta, operation){
   const CHUNK = 8 * 1024 * 1024;
   const total = file.size;
   const be = meta.kind === 'utf-16be';
   let offset = 0, unpaired = 0, first = null;
   let pendingHigh = false, pendingHighOffset = null;
   while(offset < total){
+    checkOperation(operation);
     const bytes = new Uint8Array(await file.slice(offset, Math.min(offset + CHUNK, total)).arrayBuffer());
+    checkOperation(operation);
     const lim = bytes.length & ~1; // stray odd tail byte is handled elsewhere (truncatedTail)
     for(let i = 0; i < lim; i += 2){
       const unit = be ? ((bytes[i] << 8) | bytes[i + 1]) : (bytes[i] | (bytes[i + 1] << 8));
@@ -2856,6 +2980,7 @@ async function launchSavedValidation(){
       return;
     }
     validator.mapping = mapSeed;
+    validator.mappingTiers = mapSeed.map(si=>si===null?null:'saved-approved');
     validator.mappingSource = (mode === 'client' ? 'saved client mapping' : 'saved reorder mapping');
     validator.expectedBlank = new Set();
     if(mode === 'client'){
@@ -2863,12 +2988,10 @@ async function launchSavedValidation(){
       // so validation doesn't treat the deliberate blanks as a mismatch.
       mapSeed.forEach((si, oi)=>{ if(si === null) validator.expectedBlank.add(oi); });
     }
-    // B-4: auto-select an identity column that is actually mapped.
+    // Suggest an identity, but do NOT treat a suggestion as operator approval.
     valSelectMappedIdentity();
     valRenderMapping(3);
-    toast('🧪 Ready — validating the saved file against the loaded original…');
-    // Run after the validator area is switched in and rendering settles.
-    await valRunValidate();
+    toast('🧪 Saved mapping loaded. Review it, select/approve the project identity, then press Validate Files. Validation was not auto-started.');
   } catch(err){
     console.error(err);
     valInvalidateResult('Saved-output validation failed: ' + (err.message || String(err)));
@@ -2913,11 +3036,15 @@ function createSink(onWrite){
   let bytesWritten = 0;       // every byte handed to writeBytes (stream & blob)
   let opened = false;         // true once createWritable() succeeded (file may be replaced)
   let integrityResult = null; // {ok, bytesWritten, diskSize} set by finish() for stream
+  let abortCleanupError = null; // v2.18.2: recorded instead of silently swallowed
+  let reopenError = null;       // v2.18.2: recorded instead of silently swallowed
   return {
     usesPicker,
     bytesWrittenNow(){ return bytesWritten; },
     wasOpened(){ return opened; },
     integrity(){ return integrityResult; },
+    cleanupNote(){ return abortCleanupError; },
+    reopenNote(){ return reopenError; },
     setOnWrite(fn){ writeObserver = fn || null; },
     async begin(suggestedName){
       if(usesPicker){
@@ -2940,8 +3067,9 @@ function createSink(onWrite){
             pickerError = 'cancelled';
             return 'cancelled';
           }
-          // Picker unavailable/failed → fall through to direct download
+          // A failed picker is not consent to a different save destination/path.
           pickerError = err && err.message ? err.message : String(err);
+          throw new Error('Save picker failed: ' + pickerError + '. No download was started.');
         }
       }
       if(state.file && state.file.size > 512 * 1024 * 1024){
@@ -2975,8 +3103,13 @@ function createSink(onWrite){
         try {
           await writable.write(bytes);
         } catch(err){
-          if(writable) { try { await writable.abort(); } catch(e){} }
-          writable = null;
+          if(writable){
+            try { await writable.abort(); }
+            catch(e2){ abortCleanupError = (e2 && e2.message) ? e2.message : String(e2); }
+            writable = null;
+          }
+          // v2.18.2: abort failures are recorded on the sink (cleanupNote) and
+          // surfaced by the save catch; the original write error stays primary.
           throw err;
         }
       } else {
@@ -2984,12 +3117,17 @@ function createSink(onWrite){
       }
     },
     async abort(){
-      if(writable){ try { await writable.abort(); } catch(e){} writable = null; }
+      if(writable){
+        try { await writable.abort(); }
+        catch(e2){ abortCleanupError = (e2 && e2.message) ? e2.message : String(e2); }
+        writable = null;
+      }
       chunks.length = 0;
     },
     async getSavedFile(){
       if(!fileHandle) return null;
-      try { return await fileHandle.getFile(); } catch(e){ return null; }
+      try { return await fileHandle.getFile(); }
+      catch(err){ reopenError = (err && err.message) ? err.message : String(err); return null; }
     },
     async finish(downloadName){
       if(writable){
@@ -2997,7 +3135,7 @@ function createSink(onWrite){
         writable = null;
         // FSA stream: capture the real on-disk file for post-save re-read.
         try { lastSavedOutput = await fileHandle.getFile(); lastSavedHandle = fileHandle; }
-        catch(e){ lastSavedOutput = null; }
+        catch(e){ lastSavedOutput = null; reopenError = (e && e.message) ? e.message : String(e); }
         // H3: post-save self-check — bytes actually on disk must equal the bytes
         // this save wrote. A mismatch means the file is incomplete/truncated.
         const diskSize = lastSavedOutput ? lastSavedOutput.size : -1;
@@ -3025,12 +3163,14 @@ function createSink(onWrite){
 
 /* Streaming byte and header verification. Header read failures block success;
    the logical-record size cap also applies to very large headers. */
-async function hashFileBytes(file){
+async function hashFileBytes(file, operation){
   if(!file) throw new Error('Saved file is unavailable for byte verification.');
   const hasher = createSha256();
   for(let offset=0; offset<file.size; offset+=CHUNK_BYTES){
+    checkOperation(operation);
     const end = Math.min(offset+CHUNK_BYTES, file.size);
     const bytes = new Uint8Array(await file.slice(offset,end).arrayBuffer());
+    checkOperation(operation);
     if(bytes.length !== end-offset) throw new Error('Saved file read was incomplete.');
     hasher.update(bytes);
     setBusy('Verifying saved bytes…', Math.floor(end*100/file.size)+'%');
@@ -3275,6 +3415,7 @@ async function saveFileCore(){
       }catch(e){ console.warn('Audit report not generated:', e); }
     }
     if(selfFail){
+      reportOperationError('reorder-verification', new Error(okMsg), lastSavedOutput);
       // A broken output must never feed the 1-Click validator as a "good" save.
       lastSavedOutput = null;
       lastSavedSrcHash = null;
@@ -3301,10 +3442,18 @@ async function saveFileCore(){
       toast('⛔ Save blocked — destination already exists. Choose a NEW output filename; strict mode never overwrites a non-empty file.');
       return;
     }
-    if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
+    let cleanupMsg = '';
+    if(typeof sink !== 'undefined' && sink){
+      if(typeof sink.abort === 'function') await sink.abort();
+      const cnote = (typeof sink.cleanupNote === 'function') ? sink.cleanupNote() : null;
+      if(cnote){
+        cleanupMsg = ' — destination cleanup/abort also failed: ' + cnote;
+        reportOperationError('reorder-save-cleanup', new Error(cnote), state.file);
+      }
+    }
     console.error(err);
     const partial = mode === 'stream' && !!(sink && typeof sink.wasOpened === 'function' && sink.wasOpened());
-    toast('❌ Save failed: ' + msg + (partial ? ' — the destination file may have been PARTIALLY replaced. Verify it or re-save to a NEW file name.' : ''));
+    toast('❌ Save failed: ' + msg + (partial ? ' — the destination file may have been PARTIALLY replaced. Verify it or re-save to a NEW file name.' : '') + cleanupMsg);
   } finally {
     clearBusy();
   }
@@ -3362,11 +3511,27 @@ function uniqueNormalizedIndex(names, candidate){
 /* Multi-cell fieldmap / header-list parser -------------------- */
 const FIELDMAP_HEADER_SIG = /(client\s*header|clientfield|client\s*field|our\s*field|ours\s*field|export\s*field|export|load\s*file\s*field|source\s*field|field\s*name|required\s*field|header\s*name)/i;
 
-function cleanCell(c){ return sanitizeScalarValue(String(c==null?'':c)).trim(); }
+function cleanCell(c){
+  // v2.18.2: preserve whitespace VERBATIM (no trim). The strict profile never
+  // silently normalizes a pasted header — trimming would rewrite the exact
+  // client-specified output header. Whitespace differences are only reconciled
+  // by the explicit T2 normalized auto-match, never hidden inside a claim of
+  // exactness. A lone UTF-16 surrogate still fails closed via sanitize.
+  return sanitizeScalarValue(String(c == null ? '' : c));
+}
 
 function parsePastedClientHeaders(text, requirePairs = false){
   if(!text || !String(text).trim()) return [];
-  const rawLines = String(text).replace(/^\uFEFF/,'').split(/\r\n|\r|\n/).filter(l=>l.trim()!=='');
+  let raw = String(text).replace(/^\uFEFF/,'');
+  const MAX_PASTE_UNITS = 2 * 1024 * 1024;
+  if(raw.length > MAX_PASTE_UNITS) throw new Error(`Pasted map exceeds the ${MAX_PASTE_UNITS.toLocaleString()} UTF-16 unit safety limit.`);
+  const rawLines = raw.split(/\r\n|\r|\n/);
+  // One final EOL is a terminator, not a blank row. Any other blank physical
+  // row is ambiguous and must be repaired explicitly; never silently filter it.
+  if(rawLines.length > 1 && rawLines[rawLines.length-1] === '') rawLines.pop();
+  const blankLine = rawLines.findIndex(l=>l.trim()==='');
+  if(blankLine >= 0) throw new Error(`Pasted map row ${blankLine+1} is blank. Strict mode never discards blank rows.`);
+  if(rawLines.length > MAX_FIELD_COUNT) throw new Error(`Pasted list has more than ${MAX_FIELD_COUNT} rows.`);
   const tabbed = rawLines.some(l=>l.includes('\t'));
   const piped = !tabbed && rawLines.some(l=>l.includes('|'));
   const commaed = !tabbed && !piped && rawLines.length===1 && rawLines[0].includes(',');
@@ -3375,20 +3540,25 @@ function parsePastedClientHeaders(text, requirePairs = false){
   if(!tabbed && !piped && !commaed) return rows.map(r=>({name:r[0],hint:null,mapped:null}));
   if(rows.length===1 && !requirePairs){
     const cells=rows[0];
-    while(cells.length && cells[cells.length-1]==='') cells.pop();
+    if(cells.length > MAX_FIELD_COUNT) throw new Error(`Pasted header row has more than ${MAX_FIELD_COUNT} columns.`);
+    const blank = cells.findIndex(c=>c==='');
+    if(blank >= 0) throw new Error(`Pasted header column ${blank+1} is blank. Strict mode never discards blank columns.`);
     return cells.map(name=>({name,hint:null,mapped:null}));
   }
   rows.forEach((row,i)=>{
-    // Excel may include blank padding beyond the two requested columns.
-    while(row.length>2 && row[row.length-1]==='') row.pop();
     if(row.length!==2) throw new Error('Pasted map row '+(i+1)+' must contain exactly two columns: original and output.');
     if(!row[1]) throw new Error('Pasted map row '+(i+1)+' has a blank output header.');
   });
-  const first=rows[0].map(s=>s.toLowerCase());
+  const first=rows[0].map(s=>s.toLowerCase().trim());
   const titleLeft=['our fields','original fields','source fields','original header','source header'];
   const titleRight=['client headers','output headers','delivery headers','output header','client header'];
+  // Title-row detection is a structural decision, not a data transformation:
+  // cells are matched with whitespace relaxed so a column-title row is dropped,
+  // while every DATA cell below is preserved exactly as pasted.
   const start=titleLeft.includes(first[0]) && titleRight.includes(first[1]) ? 1 : 0;
-  return rows.slice(start).map(r=>({name:r[1],hint:r[0],mapped:null}));
+  const dataRows = rows.slice(start);
+  if(!dataRows.length) throw new Error('Pasted map contains a title row but no mapping rows.');
+  return dataRows.map(r=>({name:r[1],hint:r[0],mapped:null}));
 }
 
 /* Row mapping helpers ----------------------------------------- */
@@ -3415,6 +3585,7 @@ function clUnmapRow(pos){
   if(!cl.rows[pos]) return;
   cl.rows[pos].mapped = null;
   cl.rows[pos].tier = null;
+  clearClientT2Approval();
   clRenderAll();
 }
 function clMapSrcToRow(srcIdx, rowIdx){
@@ -3424,11 +3595,13 @@ function clMapSrcToRow(srcIdx, rowIdx){
   // field (e.g. BEGDOC → Bates_Begin AND BEGDOC → Prod_Bates) — those 1:N
   // mappings are intentionally preserved.
   cl.rows[rowIdx].mapped = srcIdx;
-  cl.rows[rowIdx].tier = null; // manual link: not an auto tier
+  cl.rows[rowIdx].tier = 'manual';
+  clearClientT2Approval();
   return true;
 }
 function clRemoveRow(pos){
   cl.rows.splice(pos,1);
+  clearClientT2Approval();
   if(cl.sel === pos) cl.sel = null;
   else if(cl.sel !== null && cl.sel > pos) cl.sel--;
   clRenderAll();
@@ -3437,6 +3610,7 @@ function clMoveRow(from, to){
   if(from === to || from < 0 || to < 0 || to >= cl.rows.length) return;
   const item = cl.rows.splice(from,1)[0];
   cl.rows.splice(to,0,item);
+  clearClientT2Approval();
   cl.sel = to;
   clRenderAll();
 }
@@ -3449,6 +3623,7 @@ function clResetRows(){
    Safe via typeof guard because this function is defined after loadFile. */
 function clResetUi(){
   cl.rows = [];
+  clearClientT2Approval();
   cl.sel = null;
   clPasteText.value = '';
   clPastePreview.textContent = '';
@@ -3690,6 +3865,11 @@ async function saveClientFileCore(){
     updateSaveGuardUi();
     return;
   }
+  const unapprovedT2 = unapprovedClientT2Count();
+  if(unapprovedT2 > 0){
+    toast(`⛔ Save blocked — ${unapprovedT2} normalized-name (T2) mapping${unapprovedT2===1?' requires':'s require'} explicit operator approval.`);
+    return;
+  }
 
   const clientDupHeaders = duplicateNameList(rows.map(r=>r.name));
   if(clientDupHeaders.length){
@@ -3853,6 +4033,7 @@ async function saveClientFileCore(){
       }catch(e){ console.warn('Audit report not generated:', e); }
     }
     if(selfFail){
+      reportOperationError('client-verification', new Error(okMsg), lastSavedOutput);
       // A broken output must never feed the 1-Click validator as a "good" save.
       lastSavedOutput = null;
       lastSavedSrcHash = null;
@@ -3879,10 +4060,18 @@ async function saveClientFileCore(){
       toast('⛔ Save blocked — destination already exists. Choose a NEW output filename; strict mode never overwrites a non-empty file.');
       return;
     }
-    if(typeof sink !== 'undefined' && sink && sink.abort){ try { await sink.abort(); } catch(e){} }
+    let cleanupMsg = '';
+    if(typeof sink !== 'undefined' && sink){
+      if(typeof sink.abort === 'function') await sink.abort();
+      const cnote = (typeof sink.cleanupNote === 'function') ? sink.cleanupNote() : null;
+      if(cnote){
+        cleanupMsg = ' — destination cleanup/abort also failed: ' + cnote;
+        reportOperationError('client-save-cleanup', new Error(cnote), state.file);
+      }
+    }
     console.error(err);
     const partial = mode === 'stream' && !!(sink && typeof sink.wasOpened === 'function' && sink.wasOpened());
-    toast('❌ Save failed: ' + msg + (partial ? ' — the destination file may have been PARTIALLY replaced. Verify it or re-save to a NEW file name.' : ''));
+    toast('❌ Save failed: ' + msg + (partial ? ' — the destination file may have been PARTIALLY replaced. Verify it or re-save to a NEW file name.' : '') + cleanupMsg);
   } finally {
     clearBusy();
   }
@@ -3890,7 +4079,13 @@ async function saveClientFileCore(){
 
 /* Client-mode events ------------------------------------------ */
 function bindClientMode(){
+  const clT2Approve = document.getElementById('clApproveT2');
+  if(clT2Approve) clT2Approve.addEventListener('change', ()=>{
+    clientT2ApprovalUtc = clT2Approve.checked ? new Date().toISOString() : null;
+    invalidateLastSaved();
+  });
   btnClParsePaste.addEventListener('click', ()=>{
+    clearClientT2Approval();
     cl.rows = []; cl.sel = null; clRenderAll();
     let out;
     try { out = parsePastedClientHeaders(clPasteText.value); }
@@ -3912,6 +4107,7 @@ function bindClientMode(){
   });
 
   btnClClearPaste.addEventListener('click', ()=>{
+    clearClientT2Approval();
     clPasteText.value = '';
     clPastePreview.textContent = '';
     cl.rows = [];
@@ -3923,6 +4119,7 @@ function bindClientMode(){
   clSrcSearch.addEventListener('input', renderClSrc);
 
   $('#btnClUnlinkAll').addEventListener('click', ()=>{
+    clearClientT2Approval();
     cl.rows.forEach(r=> r.mapped = null);
     clRenderAll();
     toast('All client header mappings cleared.');
@@ -3937,6 +4134,7 @@ function bindClientMode(){
     // Guard: within one run a tier-3 (fuzzy/alias) source is used once only, so
     // several *different* client headers cannot silently claim the same column.
     const usedT3 = new Set();
+    clearClientT2Approval();
     cl.rows.forEach(r=>{
       if(r.mapped !== null) return;
       const targets = [r.hint, r.name].filter(Boolean);
@@ -4024,6 +4222,7 @@ async function runSaveLocked(fn){
   } finally {
     lockedElements.forEach((el,i) => { el.inert = inertBefore[i]; });
     saveOperationActive = false;
+    clearBusy();
   }
 }
 async function saveFile(){ return runSaveLocked(saveFileCore); }
@@ -4033,10 +4232,11 @@ async function saveClientFile(){ return runSaveLocked(saveClientFileCore); }
    Validator tab — post-save re-read comparison
    Two independent files are streamed row-by-row (constant-ish
    memory ~ queue of ONE parsed record per side). Header-name maps
-   connect renamed columns; comparison is per parsed CELL using
-   "expected transformation" rules (surrogate→U+FFFD, CP1252→'?',
-   EDML 0x14/0xFE→space, EOL, requoting) so intentional data-
-   cleaning is NOT counted as file damage.
+   connect renamed columns. In the STRICT FE/DC4 profile there are
+   no auto-approved parsed-cell "expected transformations": any value
+   mismatch, encoding/BOM difference, or record-EOL style/count
+   difference is a FAIL. Destructive cleansing is neither performed
+   nor excused.
    ============================================================= */
 const validator = {
   src:  null,        // File (original)
@@ -4052,6 +4252,7 @@ const validator = {
   srcRecords: 0,
   outRecords: 0,
   mapping: null,     // array per OUTPUT column -> src col index or null(blank)
+  mappingTiers: null,// per OUTPUT column: 'manual' | 1 | 2 | null
   mappingSource: 'none', // 'auto' | 'pasted'
   expectedBlank: new Set() // output column indexes explicitly approved as blank
 };
@@ -4079,18 +4280,101 @@ const validatorLoadToken = { src:0, out:0 };
    duplicate-name headers from silently snapping to the first occurrence. A new
    source load clears this object before parsing starts. */
 let identityUserChoice = null;
+let currentValidationOperation = null;
+let identityApprovalUtc = null;
+let validatorT2ApprovalUtc = null;
+let clientT2ApprovalUtc = null;
+
+function clearValidatorApprovals(){
+  const i = document.getElementById('valApproveIdentity'); if(i) i.checked = false;
+  const t = document.getElementById('valApproveT2'); if(t) t.checked = false;
+  identityApprovalUtc = null;
+  validatorT2ApprovalUtc = null;
+}
+function cancelCurrentValidation(reason, publish){
+  const op = currentValidationOperation;
+  if(!op || op.done) return false;
+  op.cancelled = true;
+  op.reason = reason || 'Validation cancelled by operator.';
+  if(op.cancelHooks) for(const hook of [...op.cancelHooks]) hook(new OperationCancelledError(op.reason));
+  validationOperationToken++;
+  if(publish){
+    valReportText = '';
+    valSetBadge(VALIDATION_STATUS.CANCELLED, 'warn-b');
+    if(val.reportPre) val.reportPre.textContent = op.reason;
+    if(val.dlBtn) val.dlBtn.disabled = true;
+  }
+  return true;
+}
+
+/* v2.18.2: explicit validation state machine. UNVERIFIED/RUNNING/BLOCKED/
+   CANCELLED are real badges, not just strings in a PASS/FAIL report, so a
+   running scan is never confused with a completed PASS and a blocked start is
+   never shown as a stale PASS/FAIL. */
+const VALIDATION_STATUS = Object.freeze({
+  UNVERIFIED: 'UNVERIFIED',
+  RUNNING: 'RUNNING',
+  PASS: 'PARSED-VALUE PASS',
+  PASS_WITH_EXPECTED: 'PARSED-VALUE PASS (with expected transformations)',
+  FAIL: 'FAIL',
+  BLOCKED: 'BLOCKED',
+  CANCELLED: 'CANCELLED',
+  ERROR: 'ERROR'
+});
+let validationActive = false;
+
+function valSetBadge(text, cls){
+  if(!val.statusBadge) return;
+  val.statusBadge.textContent = text;
+  val.statusBadge.className = 'badge ' + (cls || 'gray');
+}
+
+/* Cheap synchronous re-check of the conditions that block a validation start.
+   It mirrors the guards inside valRunValidateCore so a blocked run is surfaced
+   as BLOCKED immediately instead of leaving a RUNNING badge that never resolves.
+   Returns a human-readable block reason or null when validation may proceed. */
+function validationPreflightBlock(){
+  const identitySel = $('#valIdentityField');
+  const identityIdx = identitySel && identitySel.value !== '' ? Number(identitySel.value) : -1;
+  if(!validator.src || !validator.out) return 'load both the original and the output file.';
+  if(!validator.mapping || validator.mapping.length !== (validator.outHdr||[]).length) return 'build a full column mapping first (Auto-Match or paste).';
+  if(identityIdx < 0) return 'select the approved record identity field.';
+  const identityApproval = document.getElementById('valApproveIdentity');
+  if(!(identityApproval && identityApproval.checked)) return 'explicitly approve the selected identity field.';
+  if(!Number.isInteger(identityIdx) || identityIdx >= (validator.srcHdr||[]).length ||
+     !validator.mapping.some(si => si === identityIdx)) return 'the identity field must be linked to a valid mapped source column.';
+  if(validator.mapping.some(si => si !== null && (!Number.isInteger(si) || si < 0 || si >= (validator.srcHdr||[]).length))){
+    return 'the mapping contains an invalid source column index; unmap and remap it.';
+  }
+  const t2Count = (validator.mappingTiers || []).filter(t=>t===2).length;
+  const t2Approval = document.getElementById('valApproveT2');
+  if(t2Count && !(t2Approval && t2Approval.checked)) return `explicitly approve ${t2Count} normalized-name (T2) mapping${t2Count===1?'':'s'}.`;
+  const unresolved = [];
+  validator.mapping.forEach((si,oi)=>{ if(si === null && !validator.expectedBlank.has(oi)) unresolved.push(oi); });
+  if(unresolved.length) return `${unresolved.length} output column${unresolved.length===1?' is':'s are'} unmapped and not marked Expected Blank.`;
+  if((validator.srcHdr||[]).some(h=>!String(h).trim())) return 'the original file has a blank header.';
+  if((validator.outHdr||[]).some(h=>!String(h).trim())) return 'the output file has a blank header.';
+  if(duplicateNameList(validator.outHdr).length) return 'the output file has duplicate headers.';
+  if(validator.srcInfo && validator.srcInfo.unclosedQualifier) return 'the original file has an unclosed text qualifier.';
+  if(validator.outInfo && validator.outInfo.unclosedQualifier) return 'the output file has an unclosed text qualifier.';
+  if(validator.srcInfo && validator.srcInfo.utf16TruncatedTail) return 'the original file has a truncated UTF-16 tail.';
+  if(validator.outInfo && validator.outInfo.utf16TruncatedTail) return 'the output file has a truncated UTF-16 tail.';
+  return null;
+}
 
 function valInvalidateResult(note){
   // Any file/mapping change invalidates the previous PASS/FAIL report immediately.
+  cancelCurrentValidation(note || 'Validation cancelled because settings changed.', false);
   validationOperationToken++;
   valReportText = '';
-  if(val.statusBadge){ val.statusBadge.textContent = 'NOT VALIDATED'; val.statusBadge.className = 'badge gray'; }
+  valSetBadge(VALIDATION_STATUS.UNVERIFIED, 'gray');
   if(val.reportPre) val.reportPre.textContent = note || 'Files or mapping changed — validation must be run again.';
   if(val.sumBox){ val.sumBox.classList.add('hidden'); val.sumBox.innerHTML = ''; }
   if(val.dlBtn) val.dlBtn.disabled = true;
 }
 
 function valInvalidateSide(kind, pendingName){
+  clearValidatorApprovals();
   if(kind === 'src'){
     validator.src = null; validator.srcMeta = null; validator.srcFmt = null;
     validator.srcHdr = null; validator.srcInfo = null; validator.srcRecords = 0;
@@ -4111,8 +4395,10 @@ function valInvalidateSide(kind, pendingName){
 
 function valClearMappingSummary(note){
   validator.mapping = null;
+  validator.mappingTiers = null;
   validator.mappingSource = 'none';
   validator.expectedBlank = new Set();
+  clearValidatorApprovals();
   val.mappingSum.classList.add('hidden');
   val.mappingSum.textContent = '';
   val.mapPreview.textContent = '';
@@ -4123,9 +4409,10 @@ async function valLoadSide(kind, file, autoMap){
   if(!file) return;
   if(autoMap === undefined) autoMap = true;
   const loadToken = ++validatorLoadToken[kind];
+  const loadBusyOwner = newBusyOwner('validator-load-' + kind);
   // v2.18.1 HIGH fix: remove the old side and old PASS before parsing begins.
   valInvalidateSide(kind, file.name);
-  setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', file.name);
+  setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', file.name, loadBusyOwner);
   try{
     const meta = await sniffMeta(file);
     const fmtKey = detectFormat(meta.sampleText);
@@ -4133,7 +4420,7 @@ async function valLoadSide(kind, file, autoMap){
     if(fmtKey === 'legacy-fe') throw new Error('Blocked ambiguous/legacy FE dialect: no U+0014/DC4 column separators between multiple þ-qualified fields.');
     if(fmtKey !== 'fe') throw new Error('Blocked format. Validator accepts strict FE/DC4 DAT only.');
     const parsed = await buildFileIndex(file, meta, fmtKey, ({pct})=>{
-      if(pct !== null) setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', `${file.name} ${pct}%`);
+      if(pct !== null) setBusy(kind === 'src' ? 'Analyzing original…' : 'Analyzing output…', `${file.name} ${pct}%`, loadBusyOwner);
     });
     if(!parsed) throw new Error('No parseable strict FE/DC4 header.');
     if(parsed.leadingBlankRecords > 0) throw new Error(`Blocked structure: ${parsed.leadingBlankRecords} blank physical line${parsed.leadingBlankRecords===1?'':'s'} before the header.`);
@@ -4172,7 +4459,11 @@ async function valLoadSide(kind, file, autoMap){
       valInvalidateResult('Load failed — no validation result is valid for this side.');
     }
     toast('❌ Could not parse ' + file.name + ' — ' + (err && err.message ? err.message : 'error'));
-  } finally { clearBusy(); }
+  } finally {
+    // v2.18.2: never let an older/superseded load clear the busy overlay of a
+    // newer load that is still parsing (same owner-token pattern as loadFile).
+    clearBusy(loadBusyOwner);
+  }
 }
 
 function valFileName(side){
@@ -4184,15 +4475,20 @@ function valFileName(side){
    Also expose the human readable mapping summary string. */
 function valBuildMapFromPairs(pairs){
   validator.expectedBlank = new Set();
+  const t2Approval = document.getElementById('valApproveT2'); if(t2Approval) t2Approval.checked = false;
+  validatorT2ApprovalUtc = null;
+  const identityApproval = document.getElementById('valApproveIdentity'); if(identityApproval) identityApproval.checked = false;
+  identityApprovalUtc = null;
   if(!validator.srcHdr || !validator.outHdr){ toast('Load both files first.'); return false; }
   const srcIdxByName = new Map();
   validator.srcHdr.forEach((n,i)=> { if(!srcIdxByName.has(n)) srcIdxByName.set(n, []); srcIdxByName.get(n).push(i); });
 
-  const linkFromNames = (srcName, outCol) => {
-    // Find src col by exact then normalized then heuristic name match.
+  const linkFromNames = (srcName) => {
+    // Return BOTH index and truthful provenance. A normalized resolution is
+    // never labelled manual: it is T2 and requires the existing T2 approval.
     const norm = (s)=>String(s).toLowerCase().replace(/[^a-z0-9\uAC00-\uD7A3]+/g,'');
     if(srcIdxByName.has(srcName) && srcIdxByName.get(srcName).length === 1){
-      return srcIdxByName.get(srcName)[0];
+      return { idx:srcIdxByName.get(srcName)[0], tier:'manual-exact' };
     }
     const nk = norm(srcName); if(!nk) return null;
     // unique normalized collision only allowed when one exact
@@ -4202,10 +4498,11 @@ function valBuildMapFromPairs(pairs){
         found = arr[0]; collisions += arr.length;
       }
     }
-    return collisions === 1 ? found : null;
+    return collisions === 1 ? { idx:found, tier:2 } : null;
   };
 
   const map = [];
+  const tiers = [];
   const usedSrc = new Set();
   // Consume pasted mappings by output-header occurrence, not Array.find().
   // This keeps duplicate output headers positionally aligned instead of reusing
@@ -4223,21 +4520,22 @@ function valBuildMapFromPairs(pairs){
     if(queue && queue.length){
       const p = queue.shift();
       srcName = p.src;
-    } else if(pairs && (!queue || queue.length===0) && srcIdxByName.has(outName) && srcIdxByName.get(outName).length===1){
-      srcName = outName;
     } else if(!pairs){
       // pure auto: treat same-named column as a candidate only when unique.
       if(srcIdxByName.has(outName) && srcIdxByName.get(outName).length === 1) srcName = outName;
     }
-    const si = srcName != null ? linkFromNames(srcName, outCol) : null;
+    const resolved = srcName != null ? linkFromNames(srcName) : null;
+    const si = resolved ? resolved.idx : null;
     if(si !== null){
       if(usedSrc.has(si)){
         // output already shares a source column? allow 1:N mapping but keep duplicate source.
       } else usedSrc.add(si);
     }
     map.push(si);
+    tiers.push(resolved ? resolved.tier : null);
   });
   validator.mapping = map;
+  validator.mappingTiers = tiers;
   valInvalidateResult('Column mapping changed — validation must be run again.');
   return true;
 }
@@ -4247,7 +4545,8 @@ function valMappingSummaryText(){
   validator.mapping.forEach((si, outCol)=>{
     const outName = validator.outHdr[outCol] != null ? String(validator.outHdr[outCol]) : '(empty)';
     const srcName = si !== null && validator.srcHdr[si] != null ? String(validator.srcHdr[si]) : '(empty)';
-    L.push(`${String(outCol+1).padStart(2,' ')}. out[${String(outCol+1).padStart(2,' ')}] ${outName}  ←  ${si===null?'(blank)': 'src['+(si+1)+'] '+srcName}`);
+    const tier = validator.mappingTiers && validator.mappingTiers[outCol] != null ? ` [${validator.mappingTiers[outCol]}]` : '';
+    L.push(`${String(outCol+1).padStart(2,' ')}. out[${String(outCol+1).padStart(2,' ')}] ${outName}  ←  ${si===null?'(blank)': 'src['+(si+1)+'] '+srcName}${tier}`);
   });
   return L.join('\n');
 }
@@ -4258,20 +4557,27 @@ function valAutoMap(){
   const sel = document.getElementById('valTierSel');
   const maxTier = (sel && sel.value) ? Math.max(1, Math.min(3, Number(sel.value) || 2)) : 2;
   validator.expectedBlank = new Set();
+  const identityApproval = document.getElementById('valApproveIdentity'); if(identityApproval) identityApproval.checked = false;
+  identityApprovalUtc = null;
   const srcNames = validator.srcHdr.map(n => String(n == null ? '' : n));
   const used = new Set();
   const n = { 1:0, 2:0, 3:0 };
+  const tiers = [];
   const mapping = validator.outHdr.map((outName)=>{
     const res = findHeaderMatch(String(outName == null ? '' : outName), srcNames, maxTier);
-    if(!res) return null;
+    if(!res){ tiers.push(null); return null; }
     // Tier 1/2 reuse is a deliberate 1:N (identical/duplicate output names).
     // A tier-3 (fuzzy/alias) match is single-use: it must not claim every column.
-    if(res.tier >= 3 && used.has(res.idx)) return null;
+    if(res.tier >= 3 && used.has(res.idx)){ tiers.push(null); return null; }
     used.add(res.idx);
     n[res.tier]++;
+    tiers.push(res.tier);
     return res.idx;
   });
   validator.mapping = mapping;
+  validator.mappingTiers = tiers;
+  const t2Approval = document.getElementById('valApproveT2'); if(t2Approval) t2Approval.checked = false;
+  validatorT2ApprovalUtc = null;
   validator.mappingSource = 'auto';
   valInvalidateResult('Auto-mapped columns changed — validation must be run again.');
   valRenderMapping(3);
@@ -4308,8 +4614,18 @@ function valSelectMappedIdentity(){
     if(/^(control[ _-]?number|begdoc|docid|document[ _-]?id)$/i.test(String(name).trim())
        && validator.mapping.indexOf(i) >= 0) mappedPref = i;
   });
-  if(mappedPref === null) mappedPref = validator.mapping.findIndex(si => si !== null);
-  if(mappedPref >= 0 && mappedPref < (validator.srcHdr || []).length) identitySel.value = String(mappedPref);
+  // v2.18.2 fix: validator.mapping is per OUTPUT column; its first linked entry
+  // is NOT a source index when the output order differs. The identity select
+  // stores a SOURCE index, so the fallback must be the first mapped SOURCE
+  // value (findIndex would have returned the output column position).
+  if(mappedPref === null){
+    mappedPref = (validator.mapping || []).find(si => si !== null);
+  }
+  if(mappedPref !== null && Number.isInteger(mappedPref) && mappedPref >= 0 && mappedPref < (validator.srcHdr || []).length){
+    identitySel.value = String(mappedPref);
+  }
+  const approve = document.getElementById('valApproveIdentity'); if(approve) approve.checked = false;
+  identityApprovalUtc = null;
 }
 
 function valParsePastedMap(){
@@ -4330,10 +4646,13 @@ function valParsePastedMap(){
   });
   // If the paste was a single-column list, user only listed output names:
   // pair each to its same-named original (auto handled if identical exists).
-  const wasVertical = text.split(/\r\n|\r|\n/).map(l=>l.trim()).filter(Boolean).every(l=>!l.includes('\t')&&!l.includes('|')&&!l.includes(','));
+  const verticalLines = String(text).replace(/^\uFEFF/,'').split(/\r\n|\r|\n/);
+  if(verticalLines.length > 1 && verticalLines[verticalLines.length-1] === '') verticalLines.pop();
+  const wasVertical = verticalLines.every(l=>!l.includes('\t')&&!l.includes('|')&&!l.includes(','));
   if(wasVertical || pairs.length === 0){
-    // fallback: treat every line as an output header name that must equal original name.
-    const lines = String(text).split(/\r\n|\r|\n/).map(l=>l.trim()).filter(Boolean);
+    // Preserve every character exactly; parsePastedClientHeaders already
+    // rejected internal blank rows and unsafe structure.
+    const lines = parsed.map(r=>r.name);
     pairs.length = 0;
     lines.forEach(l => pairs.push({ src: l, out: l }));
   }
@@ -4382,23 +4701,12 @@ function valEscapeForReport(s){
   return escaped + (text.length>2048 ? '… [truncated; '+text.length+' UTF-16 units total]' : '');
 }
 
-/* True when `out` equals `src` OR differs only by an intentional data
-   cleansing the tool performs (surrogate hygiene → U+FFFD, CP1252
-   '?' loss, EDML 0x14/0xFE → space, EOL, requoting/capitalization
-   neutral changes are NOT considered clean by default — but we DO
-   also collapse EOL and quote-layer differences which parsed cells
-   already normalize). Returns null when equal, 'mismatch' when a real
-   value difference, or an {kind} reason when it is an expected rule. */
-const CP1252_TO_UNICODE = (()=>{
-  const m = {};
-  for(const [u,cp] of Object.entries(CP1252_MAP)) m[String.fromCharCode(cp)] = u;
-  return m;
-})();
-
+/* v2.18.2: strict profile — a parsed-cell difference is NEVER auto-approved.
+   Raw CR/LF inside FE fields is rejected during load, mixed record EOL is a
+   structural FAIL, and encoding/BOM differences are FAILs, so every value
+   mismatch must remain a mismatch. This function always returns null. */
 function valExpectedTransformation(srcRaw, outCell){
-  // Strict production profile: parsed-cell differences are never auto-approved.
-  // Raw CR/LF inside FE fields is rejected during load, and mixed record EOL is
-  // a structural FAIL, so a value mismatch must remain a mismatch.
+  void srcRaw; void outCell;
   return null;
 }
 
@@ -4434,6 +4742,8 @@ async function valStreamPair(desc, onPair){
       box.producers.splice(0).forEach(wake=>wake());
     }
   }
+  const cancelHook = err=>stop(err);
+  if(desc.operation && desc.operation.cancelHooks) desc.operation.cancelHooks.add(cancelHook);
   function check(){ if(stopped) throw pairErr || new Error('Pair scan stopped.'); }
   async function put(side, rec){
     const box = boxes[side];
@@ -4453,7 +4763,7 @@ async function valStreamPair(desc, onPair){
   async function runSide(side,cfg){
     try{
       const result=await scanFile(cfg.file,cfg.meta,cfg.fmt,rec=>put(side,rec),undefined,
-        cfg.hasher ? bytes=>cfg.hasher.update(bytes) : null);
+        cfg.hasher ? bytes=>cfg.hasher.update(bytes) : null, desc.operation);
       if(result.unclosedQualifier || result.utf16TruncatedTail) throw new Error('Incomplete record or UTF-16 unit during validation.');
       await put(side,null);
     }catch(err){ stop(err); }
@@ -4480,12 +4790,14 @@ async function valStreamPair(desc, onPair){
   }finally{
     stop();
     await Promise.all(producers);
+    if(desc.operation && desc.operation.cancelHooks) desc.operation.cancelHooks.delete(cancelHook);
   }
 }
 
 function valSplitRow(fmtKey, raw){ return FORMATS[fmtKey].split(String(raw)); }
 
-async function valRunValidateCore(validationToken){
+async function valRunValidateCore(validationToken, operation){
+  checkOperation(operation);
   const identitySelect = $('#valIdentityField');
   const identityIdx = identitySelect && identitySelect.value !== '' ? Number(identitySelect.value) : -1;
   if(identityIdx < 0) return toast('Select the approved record identity field before validation.');
@@ -4517,7 +4829,7 @@ async function valRunValidateCore(validationToken){
   if(validator.srcInfo && validator.srcInfo.utf16TruncatedTail) fatalInputs.push('original has a truncated UTF-16 tail');
   if(validator.outInfo && validator.outInfo.utf16TruncatedTail) fatalInputs.push('output has a truncated UTF-16 tail');
   if(fatalInputs.length){ toast('⛔ Validation blocked — ' + fatalInputs.join('; ') + '.'); return; }
-  setBusy('Validating…', 'Reading original + output records (streaming). First row of each is the header, which is skipped for data comparison.');
+  setBusy('Validating…', 'Reading original + output records (streaming). First row of each is the header, which is skipped for data comparison.', operation && operation.busyOwner);
   const stat = { rows:0, ok:0, identical:0, expected:0, expectedBlank:0, mismatch:0, skipBlank:0, firstMis: [], srcExtra:0, outExtra:0, srcShort:0, outShort:0, srcLong:0, outLong:0, idMismatch:0, idMisFirst: [] };
 
   const srcFmt = FORMATS[validator.srcFmt];
@@ -4548,14 +4860,16 @@ async function valRunValidateCore(validationToken){
 
   await valStreamPair(
     {
+      operation,
       a: { file: validator.src, meta: validator.srcMeta, fmt: validator.srcFmt, headers: validator.srcHdr, hasher: srcHasher },
       b: { file: validator.out, meta: validator.outMeta, fmt: validator.outFmt, headers: validator.outHdr, hasher: outHasher }
     },
     async (recA, recB, rowIdx)=>{
+      checkOperation(operation);
       if(validationToken !== validationOperationToken) throw new Error('Validation superseded by a newer run.');
       // streamPair calls with (null,null,null) at the very end; treat as flush marker.
       if(recA === null && recB === null && rowIdx === null) return;
-      setBusy('Validating…', `row ${Math.max(stat.rows+1,1).toLocaleString()} · ${(validator.src && validator.src.size ? (validator.src.size/1048576).toFixed(1) : '?')} MB side`);
+      setBusy('Validating…', `row ${Math.max(stat.rows+1,1).toLocaleString()} · ${(validator.src && validator.src.size ? (validator.src.size/1048576).toFixed(1) : '?')} MB side`, operation && operation.busyOwner);
       stat.rows++;
       const cellsA = recA === null ? null : valSplitRow(validator.srcFmt, recA);
       const cellsB = recB === null ? null : valSplitRow(validator.outFmt, recB);
@@ -4703,9 +5017,10 @@ async function valRunValidateCore(validationToken){
   const failed = stat.mismatch > 0 || stat.idMismatch > 0 || srcRec !== outRec || !headerCountMatch ||
     !!srcSkip || !!outSkip || truncated || srcIndexedMismatch || outIndexedMismatch ||
     encMismatch || eolMismatch || mixedEolStrictFail || diskSrcMismatch || diskOutMismatch || analyzedBytesMismatch;
-  const status = failed ? 'FAIL' : (stat.expected > 0 ? 'PARSED-VALUE PASS (with expected transformations)' : 'PARSED-VALUE PASS');
+  const status = failed ? VALIDATION_STATUS.FAIL : (stat.expected > 0 ? VALIDATION_STATUS.PASS_WITH_EXPECTED : VALIDATION_STATUS.PASS);
   valReportText = valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status });
-  valReportText += `\n== Mapping assurance ==\nMapping source    : ${validator.mappingSource}\nLinked columns   : ${validator.mapping.filter(x=>x!==null).length}\nIdentity field   : ${validator.srcHdr[identityIdx] || '(unnamed)'} (source column ${identityIdx+1})\nIdentity linked  : YES\nExpected blanks  : ${validator.expectedBlank.size}\nUnapproved blanks: 0\n`;
+  const t2Mappings = (validator.mappingTiers || []).filter(t=>t===2).length;
+  valReportText += `\n== Mapping assurance ==\nMapping source    : ${validator.mappingSource}\nLinked columns   : ${validator.mapping.filter(x=>x!==null).length}\nT2 normalized    : ${t2Mappings}\nT2 approval UTC  : ${t2Mappings ? (validatorT2ApprovalUtc || '(approved in current UI session; timestamp unavailable)') : 'not required'}\nIdentity field   : ${validator.srcHdr[identityIdx] || '(unnamed)'} (source column ${identityIdx+1})\nIdentity linked  : YES\nIdentity approved: YES\nIdentity approval UTC: ${identityApprovalUtc || '(approved in current UI session; timestamp unavailable)'}\nExpected blanks  : ${validator.expectedBlank.size}\nUnapproved blanks: 0\n`;
   if(validator.expectedBlank.size) [...validator.expectedBlank].forEach(oi=>{ valReportText += `  out[${oi+1}] ${validator.outHdr[oi] || '(empty header)'}\n`; });
 
   // ---- Identity row-linkage (G2) ----------------------------------------
@@ -4755,7 +5070,7 @@ async function valRunValidateCore(validationToken){
 
   valShowResult(status, stat, { srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip });
   toast('✅ Validation complete — ' + status + (stat.expected ? ` (${stat.expected} expected cleansing)` : ''));
-  clearBusy();
+  // The owning wrapper clears the busy state in finally.
 }
 
 function valBuildReportText({ stat, srcRec, outRec, recMatch, headerCountMatch, srcSkip, outSkip, status }){
@@ -4847,21 +5162,57 @@ function wireValDrop(el, input, cb){
 
 async function valRunValidate(){
   if(coreSelfTestOk !== true || !SHA256_SELF_TEST_OK){ toast('Startup self-test failed — validation is DISABLED for data safety. Reload the page.'); return; }
+  if(validationActive){ toast('A validation run is already in progress. Wait for it to finish.'); return; }
+  // v2.18.2: surface a blocked start immediately (BLOCKED) instead of leaving a
+  // RUNNING badge that can never resolve because the core will only toast+return.
+  const blockReason = validationPreflightBlock();
+  if(blockReason){
+    // Clear any stale PASS/FAIL report first (same invalidation a real run
+    // would perform), then show BLOCKED. valReportText stays empty so a blocked
+    // start can never be confused with or exported as a completed report.
+    valInvalidateResult('Validation blocked — ' + blockReason);
+    valSetBadge(VALIDATION_STATUS.BLOCKED, 'warn-b');
+    if(val.reportPre) val.reportPre.textContent = 'Validation blocked — ' + blockReason;
+    if(val.sumBox){ val.sumBox.classList.add('hidden'); val.sumBox.innerHTML = ''; }
+    if(val.dlBtn) val.dlBtn.disabled = true;
+    toast('⛔ Validation blocked — ' + blockReason);
+    return;
+  }
   valInvalidateResult('Validation running — no completed result is available yet.');
+  valSetBadge(VALIDATION_STATUS.RUNNING, 'gray');
+  validationActive = true;
   const token = validationOperationToken;
-  try { await valRunValidateCore(token); }
+  const operation = { id:token, cancelled:false, reason:null, done:false, busyOwner:newBusyOwner('validation'), cancelHooks:new Set() };
+  currentValidationOperation = operation;
+  const cancelBtn = document.getElementById('btnCancelValidation'); if(cancelBtn) cancelBtn.disabled = false;
+  setBusy('Validating…', 'Starting validated file re-read…', operation.busyOwner);
+  try { await valRunValidateCore(token, operation); }
   catch(err){
+    if(err && (err.cancelled || operation.cancelled)){
+      if(currentValidationOperation === operation){
+        valReportText = '';
+        valSetBadge(VALIDATION_STATUS.CANCELLED, 'warn-b');
+        if(val.reportPre) val.reportPre.textContent = operation.reason || err.message || 'Validation cancelled.';
+        if(val.dlBtn) val.dlBtn.disabled = true;
+      }
+      return;
+    }
     console.error(err);
     if(token !== validationOperationToken) return;
     reportOperationError('validation', err);
     valReportText = `VALIDATION ERROR\n${err && err.message ? err.message : String(err)}\n`;
-    val.statusBadge.textContent = 'ERROR';
-    val.statusBadge.className = 'badge danger';
+    valSetBadge(VALIDATION_STATUS.ERROR, 'red');
     val.reportPre.textContent = valReportText;
     val.dlBtn.disabled = false;
     toast('Validation failed: ' + (err && err.message ? err.message : String(err)));
   } finally {
-    if(token === validationOperationToken) clearBusy();
+    operation.done = true;
+    clearBusy(operation.busyOwner);
+    if(currentValidationOperation === operation){
+      currentValidationOperation = null;
+      validationActive = false;
+      if(cancelBtn) cancelBtn.disabled = true;
+    }
   }
 }
 
@@ -4897,12 +5248,27 @@ function bindValidator(){
     const idx = idSel.value !== '' ? Number(idSel.value) : -1;
     identityUserChoice = (idx >= 0 && validator.srcHdr && idx < validator.srcHdr.length)
       ? { name:String(validator.srcHdr[idx]), index:idx } : null;
+    const approve = document.getElementById('valApproveIdentity'); if(approve) approve.checked = false;
+    identityApprovalUtc = null;
     valInvalidateResult('Record identity selection changed — validation must be run again.');
+  });
+  const idApprove = document.getElementById('valApproveIdentity');
+  if(idApprove) idApprove.addEventListener('change', ()=>{
+    identityApprovalUtc = idApprove.checked ? new Date().toISOString() : null;
+    valInvalidateResult('Identity approval changed — validation must be run again.');
+  });
+  const t2Approve = document.getElementById('valApproveT2');
+  if(t2Approve) t2Approve.addEventListener('change', ()=>{
+    validatorT2ApprovalUtc = t2Approve.checked ? new Date().toISOString() : null;
+    valInvalidateResult('T2 mapping approval changed — validation must be run again.');
   });
   $('#btnValMapParse').addEventListener('click', valParsePastedMap);
   $('#btnValAutoMap').addEventListener('click', valAutoMap);
   $('#btnValClearMap').addEventListener('click', ()=>{ valClearMappingSummary(); val.mapText.value=''; });
   $('#btnValidate').addEventListener('click', ()=> valRunValidate());
+  $('#btnCancelValidation').addEventListener('click', ()=>{
+    if(cancelCurrentValidation('Validation cancelled by operator.', true)) toast('Validation cancelled. No PASS/FAIL report was produced.');
+  });
   val.dlBtn.addEventListener('click', ()=>{
     if(valReportText) downloadTextFile(timestampedDownloadName('delivery_validation', 'txt'), valReportText);
   });
@@ -5229,6 +5595,11 @@ function buildAuditReport(info){
       ', CP1252 loss=', ack.cpLoss);
   }
   A('Mapping method                       : ', info.mode === 'client' ? 'manual / exact normalized auto-match' : 'source-column index plan');
+  if(info.mode === 'client'){
+    const t2 = (cl.rows || []).filter(r=>r.mapped !== null && r.tier === 2).length;
+    A('T2 normalized mappings              : ', t2);
+    A('T2 operator approval UTC            : ', t2 ? (clientT2ApprovalUtc || '(approval state unavailable)') : 'not required');
+  }
   A('NOTE. Row counts above reflect the in-memory transformation loop ONLY.');
   A('They are NOT a re-read of the saved file, so file-system write errors /');
   A('truncated trailing EOL are not detected by the counter above.');
@@ -5243,6 +5614,12 @@ function buildAuditReport(info){
   A('Header / byte verification         : ', sc.headerFailNote ? ('FAIL — ' + sc.headerFailNote) : 'PASS');
   A('Re-read scope                       : ', sc.diskBacked ? 'selected disk file' : 'in-memory Blob only; downloaded disk file NOT verified');
   A('Re-read SHA-256                      : ', sc.rereadHash || '(not completed)');
+  if(sc.diskBacked){
+    A('Durability scope                   : browser File System Access provides no fsync() or');
+    A('                    atomic-replace guarantee. The destination was closed, re-opened and');
+    A('                    byte-compared after the write; power-loss/OS-cache durability is');
+    A('                    outside the browser contract.');
+  }
   if(sc.failed) A('DO NOT USE OUTPUT                  : YES — save self-check failed.');
   A('');
 
@@ -5450,6 +5827,41 @@ function runSelfTest(interactive){
 
 console.info('DAT Field Reorder v' + TOOL_VERSION + ' — STRICT FE/DC4 production profile. Legacy no-DC4 FE, literal þ/raw CR-LF in fields, mixed EOL, leading blank lines, CP1252 and destructive overwrite are blocked. All local.');
 
+/* v2.18.4 (build 2026-09-06-h6) RELEASE CANDIDATE: shipping filename remains
+   field_mapper.html. Pasted Validator mappings now record manual-exact versus
+   normalized T2 provenance truthfully; T2 requires operator approval; output
+   columns omitted from the pasted map remain unresolved instead of being
+   silently auto-filled by matching output/source names. */
+/* v2.18.3 (build 2026-09-06-h5): shipping filename remains field_mapper.html.
+   Adds real cooperative Validator cancellation (including pair-queue wakeup),
+   fixes validationActive recovery after settings supersede a run, coordinates
+   concurrent source/output load busy ownership, requires explicit operator
+   approval for identity and T2 normalized mappings, stops 1-Click from
+   auto-validating an unapproved identity, rejects rather than deletes blank
+   pasted rows/columns/extra empty columns, preserves Validator vertical-map
+   whitespace, and lowers the fail-closed UI/record column cap to 2,000. */
+/* v2.18.2 (build 2026-09-06-h4):
+   P1 the shipped filename stays field_mapper.html (docs/tests now reference it);
+      only the internal TOOL_VERSION/BUILD advance;
+   P2 strict per-record COLUMN cap (MAX_FIELD_COUNT) is enforced with a bounded
+      delimiter scan BEFORE split()/array/DOM allocation;
+   P3 the row-width histogram is bounded (MAX_TRACKED_WIDTHS detail rows) while
+      matching/mismatching/short/long totals and the first mismatch stay exact;
+   P4 pasted client headers are preserved VERBATIM (no implicit trim); T1 Exact is
+      raw whitespace/case exact; whitespace folding is confined to the explicit T2;
+   P5 Validator has explicit UNVERIFIED/RUNNING/BLOCKED/CANCELLED/ERROR states and
+      a synchronous start preflight, so a blocked run is never stuck as RUNNING
+      and a stale PASS is always cleared first;
+   P6 Validator identity fallback selects the first mapped SOURCE index (the old
+      findIndex fallback returned an OUTPUT column position);
+   P7 superseded Validator loads can no longer clear a newer load's busy overlay
+      (owner token in valLoadSide);
+   P8 save abort/cleanup/reopen failures are recorded and surfaced (no empty
+      catch suppression remains on integrity paths);
+   P9 the transformation audit report states the FSA durability scope truthfully
+      (no fsync/atomic-replace claim for the browser);
+   P10 a local-only CSP meta tag is added and the local-only static check is part
+      of the test suite (no network API usage is allowed). */
 /* v2.18.1 production-hardening hotfix:
    H1 selecting a replacement source invalidates the prior source immediately;
    H2 validator side/mapping/identity/Expected-Blank changes clear stale PASS/report state immediately;
@@ -5510,6 +5922,6 @@ console.info('DAT Field Reorder v' + TOOL_VERSION + ' — STRICT FE/DC4 producti
    chain, identity row linkage, encoding/BOM/EOL style-and-count equality,
    stale-context invalidation, timestamped report downloads. */
 </script>
-<!-- v2.18.1 production-hardened hotfix: stale source/validator invalidation, audit self-fail propagation, bounded previews, duplicate identity fix -->
+<!-- v2.18.4 RC (field_mapper.html fixed name): truthful pasted-map provenance; omitted output columns stay unresolved. -->
 </body>
 </html>
